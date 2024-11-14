@@ -1,3 +1,30 @@
+# Ignore virtual environment directories
+new_env/
+venv/
+.env/
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+
+# Ignore log files
+logs/
+
+# Ignore data files
+data/processed/
+data/raw/
+
+# Ignore model files
+models/*.png
+models/*.keras
+models/*.h5
+
+# Ignore personal configuration files
+.zshrc
+.zshrct
+
+# Ignore system files
+.DS_Store
 # Ignore virtual environment folder
 venv/
 .env/

@@ -38,7 +38,7 @@ def normalize_matrices(matrices, range_min=-1, range_max=1):
     normalized_matrices = normalized_matrices * (range_max - range_min) + range_min  # Scale to [range_min, range_max]
     return normalized_matrices
 
-def transform_to_matrices(dados, reshape_dims=(599, 38, 66), normalize=True):
+def transform_to_matrices(dados, reshape_dims=(500, 38, 66), normalize=True):
     """
     Transforms the data from a DataFrame to a 3D matrix format and normalizes if specified.
     
