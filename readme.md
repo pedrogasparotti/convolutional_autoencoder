@@ -1,4 +1,4 @@
-# Signal Reconstruction and Classification Project
+# Signal reconstruction and anomaly detection with unsupervised machine learning 
 
 This project focuses on the reconstruction and classification of accelerometer signals using convolutional autoencoders. The primary goal is to detect anomalies and classify signals as either healthy or damaged by analyzing their patterns and characteristics.
 
