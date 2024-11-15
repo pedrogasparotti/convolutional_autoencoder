@@ -20,15 +20,14 @@ from models.autoencoder import (
 )
 
 # Define data path
-data_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/healthy_accel_matrices.npy'
+data_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/healthy_accel_matrices_dof_4.npy'
 
 def load_data(data_path):
     """
-    Loads and normalizes data from a .npy file.
+    Loads data from a .npy file.
     """
     data = np.load(data_path)
-    # Normalize data to [-1, 1] range
-    data = (data - data.min()) / (data.max() - data.min()) * 2 - 1
+
     return data
 
 def scheduler(epoch, lr):
@@ -74,9 +73,11 @@ def main():
     x_train, x_val = train_test_split(data, test_size=0.2, random_state=42)
 
     # Build and compile the model
-    input_shape = (38, 66, 1)
+    input_shape = (44, 44, 1)
     autoencoder = build_autoencoder(input_shape=input_shape)
-    autoencoder = compile_autoencoder(autoencoder, optimizer='adam', loss='mse')
+    autoencoder = compile_autoencoder(autoencoder,
+                                      optimizer = tf.keras.optimizers.Adam(learning_rate=0.001,clipnorm=1.0),
+                                      loss='mae')
 
     # Plot the model architecture
     architecture_file = r'/Users/home/Documents/github/convolutional_autoencoder/models/autoencoder_architecture.png'
