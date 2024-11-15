@@ -10,7 +10,7 @@ __pycache__/
 # Ignore log files
 logs/
 
-# Ignore data files
+# Ignore data directories
 data/processed/
 data/raw/
 
@@ -25,16 +25,7 @@ models/*.h5
 
 # Ignore system files
 .DS_Store
-# Ignore virtual environment folder
-venv/
-.env/
-new_env/  # Adjust to the exact name of your environment folder
 
-# Ignore system files
-__pycache__/
-*.pyc
-.DS_Store
-
-# Ignore data
-.csv
-.npy
+# Ignore data files
+*.csv
+*.npy
