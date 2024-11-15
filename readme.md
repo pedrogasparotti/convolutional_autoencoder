@@ -19,10 +19,10 @@ This project focuses on the reconstruction and classification of accelerometer s
 
 ### Prerequisites
 
-- Python 3.x
+- Python 3.10 (the version I currently use to ensure proper tensorflow function)
 - NumPy
-- Pandas
-- Matplotlib
+- Pandas (I only use pandas to make sanity checking in some data transformation processes) 
+- Matplotlib (of course matplotlib)
 - TensorFlow or PyTorch (for autoencoder implementation)
 
 ### Installation
