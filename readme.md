@@ -45,17 +45,18 @@ pip install -r requirements.txt
 
 ## Usage
 
-python src/data/make_dataset_pd.py --> load and normalize the accelerometer data
+`python src/data/make_dataset_pd.py` --> load and normalize the accelerometer data
 
-the directory src/visualization/ --> tools to visualize signal
+`cd src/visualization/` --> directory with tools to visualize signal
 
-python src/models/train_autoencoder.py --> train the autoencoder model
+`python src/models/train_autoencoder.py` --> train the autoencoder model
 
-python src/visualization/plot_training.py --> visualize your training history
+`python src/visualization/plot_training.py` --> visualize your training history
 
+I have developed the whole code in macOs using M2 Pro chip, training takes less than 5 minutes (code runs on WSL2 Ubuntu as well)
 
-License
+### License
 
 This project is licensed under the MIT License.
 
-Contact me if you want to talk about AI with someone that will not use gen ai to answer you (for a change) ;)
+Contact me if you want to talk about AI with someone that will not use GPT to answer you (for a change) ;)
