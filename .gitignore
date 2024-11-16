@@ -29,3 +29,5 @@ models/*.h5
 # Ignore data files
 *.csv
 *.npy
+*.h5
+hyperparam_tuning/autoencoder_optimization/trial_*/checkpoint.weights.h5
