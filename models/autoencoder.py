@@ -1,9 +1,10 @@
 import tensorflow as tf
-from tensorflow.keras import layers, models, Input
+from tensorflow.keras import layers, models, Input, regularizers
 from tensorflow.keras.utils import plot_model
 from tensorflow.keras.regularizers import l2
+import numpy as np
 
-def build_autoencoder(input_shape=(44, 44, 1)):
+def build_autoencoder_single_model(input_shape=(44, 44, 1), latent_dim=128):
     inputs = Input(shape=input_shape, name='encoder_input')
 
     # Encoder
@@ -29,6 +30,10 @@ def build_autoencoder(input_shape=(44, 44, 1)):
     x = layers.Conv2D(256, (3, 3), activation='relu', padding='same', kernel_regularizer=l2(0.01))(x)
     x = layers.BatchNormalization()(x)
     encoded = layers.MaxPooling2D((2, 2), padding='same', name='encoded_layer')(x)  # Output: (6, 6, 256)
+
+    # Flatten and bottleneck (latent space)
+    x = layers.Flatten()(x)
+    x = layers.Dense(latent_dim, activation='relu')(x)  # Bottleneck layer
 
     # Decoder
     x = layers.Conv2DTranspose(256, (3, 3), activation='relu', padding='same')(encoded)
@@ -57,7 +62,7 @@ def compile_autoencoder(model,
                         loss='mse'):
     """
     Compiles the autoencoder model.
-    
+
     Parameters:
     - model (Model): The autoencoder model to compile.
     - optimizer (str or Optimizer): Optimizer to use.

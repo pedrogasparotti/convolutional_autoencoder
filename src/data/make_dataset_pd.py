@@ -58,7 +58,7 @@ def plot_first_five_rows(df):
         plt.show()
     else:
         print("DataFrame does not contain enough rows to plot the first 5 rows.")
-
+p
 # Usage
 file_path = "/Users/home/Documents/github/convolutional_autoencoder/data/vbi_2d_healthy/acc_vehicle_data_dof_4.csv"
 dados = load_csv_data(file_path)

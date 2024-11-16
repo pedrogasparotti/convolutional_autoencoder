@@ -13,7 +13,7 @@ if project_root not in sys.path:
 
 # Import functions from autoencoder.py
 from models.autoencoder import (
-    build_autoencoder,
+    build_autoencoder_single_model,
     compile_autoencoder,
     get_callbacks,
     plot_model_architecture
@@ -74,7 +74,7 @@ def main():
 
     # Build and compile the model
     input_shape = (44, 44, 1)
-    autoencoder = build_autoencoder(input_shape=input_shape)
+    autoencoder = build_autoencoder_single_model(input_shape=input_shape)
     autoencoder = compile_autoencoder(autoencoder,
                                       optimizer = tf.keras.optimizers.Adam(learning_rate=0.001,clipnorm=1.0),
                                       loss='mae')
