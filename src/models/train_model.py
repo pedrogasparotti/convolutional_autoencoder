@@ -87,7 +87,7 @@ def main():
     model_save_path = r'/Users/home/Documents/github/convolutional_autoencoder/models/autoencoder_best_model.keras'
     callbacks = get_callbacks(model_path=model_save_path, patience=10)
     lr_scheduler = LearningRateScheduler(scheduler)
-    callbacks.append(lr_scheduler)  # Add scheduler to callbacks
+    callbacks.append(lr_scheduler)
 
     # Add TensorBoard callback
     log_dir = "logs/autoencoder"
