@@ -39,13 +39,20 @@ encoder_layers = [
 # encoder layers
 decoder_layers = [
     
-    tf.keras.layers.Conv2DTranspose(256, (3, 3), strides=(2, 2), activation='relu', padding='valid'),
+    tf.keras.layers.Conv2DTranspose(256, (3, 3), activation='relu', padding='same'),
     tf.keras.layers.BatchNormalization(),
+    tf.keras.layers.UpSampling2D((2, 2)),
 
-    tf.keras.layers.Conv2DTranspose(128, (3, 3), strides=(2, 2), activation='relu', padding='same'),
+    tf.keras.layers.Conv2DTranspose(128, (3, 3), activation='relu', padding='same'),
     tf.keras.layers.BatchNormalization(),
+    tf.keras.layers.UpSampling2D((2, 2)),
 
-    tf.keras.layers.Conv2DTranspose(1, (3, 3), strides=(2, 2), padding='same', activation='sigmoid')
+    tf.keras.layers.Conv2DTranspose(64, (3, 3), activation='relu', padding='valid'),
+    tf.keras.layers.BatchNormalization(),
+    tf.keras.layers.UpSampling2D((2, 2)),
+
+    tf.keras.layers.Conv2DTranspose(1, (3, 3), padding='same', activation='sigmoid'),
+
 ]
 
 x = input_tensor

@@ -46,7 +46,7 @@ def build_autoencoder_single_model(input_shape=(44, 44, 1), latent_dim=128):
 
     x = layers.Conv2DTranspose(64, (3, 3), activation='relu', padding='same')(x)
     x = layers.BatchNormalization()(x)
-    x = layers.UpSampling2D((2, 2))(x)  # Output: (48, 48, 64)
+    x = layers.UpSampling2D((2, 2))(x)
 
     # Adjust to match the original input shape (44, 44)
     x = layers.Cropping2D(((2, 2), (2, 2)))(x)  # Crop to (44, 44, 64)
@@ -59,7 +59,7 @@ def build_autoencoder_single_model(input_shape=(44, 44, 1), latent_dim=128):
 
 def compile_autoencoder(model, 
                         optimizer = tf.keras.optimizers.Adam(learning_rate=0.001, clipnorm=1.0), 
-                        loss='mse'):
+                        loss='mae'):
     """
     Compiles the autoencoder model.
 

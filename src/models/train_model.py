@@ -20,12 +20,21 @@ from models.autoencoder import (
 )
 
 # Define data path
-data_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/healthy_accel_matrices_dof_4.npy'
+data_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/healthy_acc_vehicle_data_dof_4.npy'
 
 def load_data(data_path):
     """
-    Loads data from a .npy file.
+    Loads data from a .npy file
+
+    Parameters:
+    - data_path: str
+        Path to the .npy file containing the data.
+
+    Returns:
+    - numpy.ndarray
+         data.
     """
+    # Load data
     data = np.load(data_path)
 
     return data
@@ -38,6 +47,23 @@ def scheduler(epoch, lr):
         return lr
     else:
         return lr * 0.9
+
+def alternative_scheduler(epoch, lr):
+    """
+    Learning rate scheduler function.
+    Less aggressive reduction: reduces learning rate by 5% every 20 epochs after epoch 20.
+    Maintains a minimum learning rate threshold.
+    """
+    initial_lr = 0.001  # Initial learning rate
+    min_lr = 1e-5      # Minimum learning rate threshold
+    
+    if epoch < 20:
+        return initial_lr
+    else:
+        # Reduce by 5% every 20 epochs
+        decay = 0.95 ** ((epoch - 20) // 20)
+        new_lr = initial_lr * decay
+        return max(new_lr, min_lr)  
 
 def plot_reconstruction(original, reconstructed, num_signals=5):
     """

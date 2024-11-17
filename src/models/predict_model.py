@@ -1,9 +1,11 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.models import load_model
-from sklearn.metrics import mean_absolute_error
+from tensorflow.keras.losses import MeanAbsoluteError
+from scipy.stats import lognorm
 import scipy.stats as stats
 import matplotlib.pyplot as plt
+from sklearn.metrics import roc_curve, auc
 import os
 
 def load_dae_model(model_path):
@@ -45,29 +47,81 @@ def load_signals(healthy_path, anomalous_path):
     print(f"Loaded {healthy_data.shape[0]} healthy signals and {anomalous_data.shape[0]} anomalous signals.")
     return healthy_data, anomalous_data
 
-def calculate_maes(model, data, batch_size=32):
+def calculate_maes(model, data):
     """
-    Calculate MAE values for a dataset using the autoencoder model with Keras built-in function.
+    Calculate Mean Absolute Errors (MAEs) for autoencoder predictions.
     
     Parameters:
-    model (tensorflow.keras.Model): Trained autoencoder model
-    data (numpy.ndarray): Input data to evaluate
-    batch_size (int): Batch size for predictions
-    
+    model: tensorflow.keras.Model
+        The trained autoencoder model
+    data: numpy.ndarray
+        Array of signals with shape (n_samples, 44, 44)
+        
     Returns:
-    numpy.ndarray: Array of MAE values for each sample
+    numpy.ndarray
+        Array of MAE values for each sample
     """
-    
     # Make predictions
-    reconstructions = model.predict(data, batch_size=batch_size, verbose=0)
-    
-    # Initialize Keras Mean Absolute Error function
-    mae_function = tf.keras.losses.MeanAbsoluteError(reduction=tf.keras.losses.Reduction.NONE)
-    
+    predictions = model.predict(data, verbose=0)
+    predictions = np.squeeze(predictions)
+
     # Calculate MAE for each sample
-    mae_values = mae_function(data, reconstructions)
+    # This will automatically handle the (44,44) dimensions for each sample
+    maes = np.mean(np.abs(data - predictions), axis=(1,2))
     
-    return mae_values
+    return maes
+
+def fit_mae_distribution(maes, plot=False):
+    """
+    Fit a lognormal distribution to MAE values and extract mu and sigma parameters.
+    
+    Parameters:
+    maes: numpy.ndarray
+        Array of Mean Absolute Error values
+        
+    Returns:
+    tuple:
+        - mu (float): Location parameter of the underlying normal distribution
+        - sigma (float): Scale parameter of the underlying normal distribution
+        - shape (float): Shape parameter s of the fitted lognormal distribution
+        - loc (float): Location parameter of the fitted lognormal distribution
+        - scale (float): Scale parameter of the fitted lognormal distribution
+    """
+    # Fit the lognormal distribution to the MAE values
+    # The lognorm.fit function returns (s, loc, scale) where s is the shape parameter
+    shape, loc, scale = stats.lognorm.fit(maes, floc=0)  # floc=0 fixes location to 0
+    
+    # Convert lognormal parameters to normal distribution parameters
+    # For lognormal distribution:
+    # sigma = shape
+    # mu = log(scale)
+    sigma = shape
+    mu = np.log(scale)
+    
+    # Calculate goodness of fit using Kolmogorov-Smirnov test
+    ks_statistic, p_value = stats.kstest(maes, 'lognorm', args=(shape, loc, scale))
+    
+    return mu, sigma
+
+def plot_distribution_fit(data, dist, params):
+    """
+    Plot histogram of MAEs with fitted distribution.
+    """
+    plt.figure(figsize=(10, 6))
+    
+    # Plot histogram of actual data
+    plt.hist(data, bins='auto', density=True, alpha=0.7, label='Actual MAEs')
+    
+    # Plot fitted distribution
+    x = np.linspace(min(data), max(data), 100)
+    plt.plot(x, dist.pdf(x, *params), 'r-', lw=2, label=f'Fitted {dist.name}')
+    
+    plt.title('Distribution of Healthy Signal MAEs')
+    plt.xlabel('MAE')
+    plt.ylabel('Density')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.show()
 
 def sample_mae_subsets(healthy_maes, damaged_maes, num_subsets=60, samples_per_subset=10):
     """
@@ -97,123 +151,48 @@ def sample_mae_subsets(healthy_maes, damaged_maes, num_subsets=60, samples_per_s
 
     return healthy_samples_tensor, damaged_samples_tensor
 
-def plot_mae_distributions(healthy_subsets, damaged_subsets, bins=50):
+def analyze_individual_distributions(mae_samples):
     """
-    Plot the distributions of MAE values for healthy and damaged subsets using histograms.
-
-    Parameters:
-    healthy_subsets (tf.Tensor): Tensor of MAE subsets for healthy samples.
-    damaged_subsets (tf.Tensor): Tensor of MAE subsets for damaged samples.
-    bins (int): Number of bins for histogram.
-    """
-    # Flatten the tensors to get all sample MAE values in a single array
-    all_healthy_maes = tf.reshape(healthy_subsets, [-1]).numpy()
-    all_damaged_maes = tf.reshape(damaged_subsets, [-1]).numpy()
-
-    # Create figure and axis objects
-    fig, ax = plt.subplots(figsize=(10, 6))
-
-    # Plot histograms
-    ax.hist(all_healthy_maes, bins=bins, alpha=0.6, label='Healthy', color='green')
-    ax.hist(all_damaged_maes, bins=bins, alpha=0.6, label='Damaged', color='red')
-
-    # Set title and labels
-    ax.set_title('Distribution of MAE Values')
-    ax.set_xlabel('Mean Absolute Error (MAE)')
-    ax.set_ylabel('Frequency')
+    Analyze each sample of MAEs separately to get their distribution parameters.
     
-    # Add a legend
-    ax.legend()
-
-    # Show the plot
-    plt.show()
-
-def plot_sample_distributions(healthy_samples, damaged_samples, bins=50):
-    """
-    Plot the distributions of healthy and damaged samples using histograms in separate subplots.
-
     Parameters:
-    healthy_samples (list of tf.Tensor): List of tensors containing the healthy samples.
-    damaged_samples (list of tf.Tensor): List of tensors containing the damaged samples.
-    bins (int): Number of bins for histogram.
-    """
-    # Convert list of tensors to numpy arrays for plotting
-    all_healthy = np.concatenate([sample.numpy().flatten() for sample in healthy_samples])
-    all_damaged = np.concatenate([sample.numpy().flatten() for sample in damaged_samples])
-
-    # Create figure and subplots
-    fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
-    
-    # Plot healthy samples distribution
-    axes[0].hist(all_healthy, bins=bins, color='green', alpha=0.7)
-    axes[0].set_title('Distribution of Healthy Samples')
-    axes[0].set_ylabel('Frequency')
-    
-    # Plot damaged samples distribution
-    axes[1].hist(all_damaged, bins=bins, color='red', alpha=0.7)
-    axes[1].set_title('Distribution of Damaged Samples')
-    axes[1].set_ylabel('Frequency')
-    axes[1].set_xlabel('Mean Absolute Error (MAE)')
-
-    # Tight layout to ensure no overlap
-    plt.tight_layout()
-    plt.show()
-
-def plot_distribution_subplots(samples, title_prefix, color, bins=50):
-    """
-    Plot distributions of samples using histograms in multiple subplots on a single figure.
-
-    Parameters:
-    samples (list of tf.Tensor): List of tensors containing the samples for plotting.
-    title_prefix (str): Prefix for subplot titles to distinguish healthy from damaged.
-    color (str): Color of the histogram.
-    bins (int): Number of bins for histogram.
-    """
-    num_samples = len(samples)
-    cols = 2  # Number of columns in subplot grid
-    rows = (num_samples + 1) // cols  # Calculate rows needed
-
-    # Create figure with subplots
-    fig, axes = plt.subplots(rows, cols, figsize=(12, rows * 3), sharex=True, sharey=True)
-    axes = axes.flatten()  # Flatten to simplify indexing
-
-    # Plot each sample distribution
-    for i, sample in enumerate(samples):
-        data = sample.numpy().flatten()
-        axes[i].hist(data, bins=bins, color=color, alpha=0.7)
-        axes[i].set_title(f'{title_prefix} Sample {i+1}')
-
-    # Hide unused subplots if any
-    for j in range(i + 1, len(axes)):
-        axes[j].axis('off')
-
-    # Adjust layout and show plot
-    plt.tight_layout()
-    plt.show()
-
-def fit_lognormal_parameters(samples):
-    """
-    Fits log-normal distribution parameters for a list of sample tensors.
-
-    Parameters:
-    samples (list of tf.Tensor): List of tensors containing the samples.
-
+    mae_samples: list of numpy.ndarray
+        List of samples, where each sample contains MAE values
+        
     Returns:
-    list of tuple: Each tuple contains the mu (mean) and sigma (std deviation) of
-                   the log-normal distribution for each sample.
+    list of tuples
+        List of (mu, sigma) pairs for each sample
     """
-    parameters = []
-    for sample in samples:
-        # Flatten the sample tensor and take the natural log of the data
-        data = np.log(sample.numpy().flatten() + 1e-9)  # add a small value to avoid log(0)
+    distributions_params = []
+    
+    for sample in mae_samples:
+        # Fit normal distribution to this sample
+        mu, sigma = stats.norm.fit(sample)
+        distributions_params.append((mu, sigma))
+    
+    return distributions_params
 
-        # Fit a normal distribution to the log of the data
-        mu, sigma = stats.norm.fit(data)
-
-        # Store the parameters
-        parameters.append((mu, sigma))
-
-    return parameters
+def plot_distribution_fit(data, dist, params, dist_name, sample_name):
+    """
+    Plot histogram of MAEs with fitted distribution.
+    """
+    plt.figure(figsize=(10, 6))
+    
+    # Plot histogram of actual data
+    plt.hist(data, bins='auto', density=True, alpha=0.7, 
+             label=f'Actual {sample_name} MAEs')
+    
+    # Plot fitted distribution
+    x = np.linspace(min(data), max(data), 100)
+    plt.plot(x, dist.pdf(x, *params), 'r-', lw=2, 
+             label=f'Fitted {dist_name} Distribution')
+    
+    plt.title(f'Distribution of {sample_name} MAEs')
+    plt.xlabel('MAE')
+    plt.ylabel('Density')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.show()
 
 def kl_divergence(mu1, sigma1, mu2, sigma2):
     """
@@ -240,6 +219,77 @@ def calculate_di(healthy_params, damaged_params):
         kl_div = kl_divergence(mu1, sigma1, mu2, sigma2)
         dis.append(kl_div)
     return dis
+
+def calculate_sample_damage_indexes(samples, baseline_params):
+    """
+    Calculate damage indexes by comparing any set of samples against the baseline distribution.
+    
+    Parameters:
+    samples: list of numpy.ndarray
+        List of MAE samples to compare against baseline
+    baseline_params: tuple
+        Parameters of the baseline distribution fitted to all healthy data
+    baseline_dist: scipy.stats distribution
+        The baseline distribution object
+        
+    Returns:
+    numpy.ndarray
+        Array of damage indexes for the samples
+    """
+
+    # Get distribution parameters for each sample
+    sample_params = [stats.norm.fit(sample) for sample in samples]
+    
+    # Convert baseline parameters to normal distribution parameters
+    baseline_mu, baseline_sigma = baseline_params 
+    
+    # Calculate KL divergence for samples vs baseline
+    damage_indexes = [kl_divergence(mu, sigma, baseline_mu, baseline_sigma) 
+                     for mu, sigma in sample_params]
+    
+    return np.array(damage_indexes)
+
+def plot_lognormal_distribution(mu, sigma, data=None, bins=50, figsize=(10, 6)):
+    """
+    Plot the log-normal distribution with given parameters and optionally overlay histogram of data.
+    
+    Parameters:
+    mu (float): Location parameter of the log-normal distribution
+    sigma (float): Scale parameter of the log-normal distribution
+    data (array-like, optional): Original data to overlay as histogram
+    bins (int, optional): Number of bins for histogram
+    figsize (tuple, optional): Figure size
+    
+    Returns:
+    tuple: Figure and axes objects
+    """
+    # Create figure and axis
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Generate points for the PDF curve
+    x = np.linspace(0, max(data) if data is not None else np.exp(mu + 3*sigma), 1000)
+    pdf = lognorm.pdf(x, sigma, scale=np.exp(mu))
+    
+    # Plot the PDF
+    ax.plot(x, pdf, 'r-', lw=2, label='Log-normal PDF')
+    
+    # If data is provided, plot histogram
+    if data is not None:
+        ax.hist(data, bins=bins, density=True, alpha=0.5, color='blue', label='Data histogram')
+    
+    # Add labels and title
+    ax.set_xlabel('Value')
+    ax.set_ylabel('Density')
+    ax.set_title(f'Log-normal Distribution (μ={mu:.2f}, σ={sigma:.2f})')
+    ax.legend()
+    
+    # Add grid
+    ax.grid(True, alpha=0.3)
+    
+    # Tight layout to prevent label cutoff
+    plt.tight_layout()
+    
+    return fig, ax
 
 def plot_lognormal_fits(samples, parameters, title_prefix):
     """
@@ -323,42 +373,109 @@ def compare_lognormal_pairs(healthy_params, damaged_params):
     plt.tight_layout()
     plt.show()
 
+def plot_damage_indices(healthy_indices, damaged_indices, figsize=(12, 6)):
+    """
+    Create a scatter plot of damage indices for healthy and damaged samples.
+    
+    Parameters:
+    healthy_indices: numpy.ndarray - Damage indices for healthy samples
+    damaged_indices: numpy.ndarray - Damage indices for damaged samples
+    figsize: tuple - Figure size (width, height)
+    """
+    # Create figure
+    plt.figure(figsize=figsize)
+    
+    # Create x-coordinates (just for visualization)
+    healthy_x = np.random.normal(0, 0.1, len(healthy_indices))
+    damaged_x = np.random.normal(1, 0.1, len(damaged_indices))
+    
+    # Create scatter plots
+    plt.scatter(healthy_x, healthy_indices, c='blue', alpha=0.5, label='Healthy')
+    plt.scatter(damaged_x, damaged_indices, c='red', alpha=0.5, label='Damaged')
+    
+    # Add mean lines
+    plt.axhline(y=np.mean(healthy_indices), color='blue', linestyle='--', alpha=0.5)
+    plt.axhline(y=np.mean(damaged_indices), color='red', linestyle='--', alpha=0.5)
+    
+    # Customize plot
+    plt.title('Damage Indices: Healthy vs Damaged Samples')
+    plt.xlabel('Sample Type')
+    plt.ylabel('Damage Index')
+    plt.xticks([0, 1], ['Healthy', 'Damaged'])
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    
+    # Add statistics annotation
+    stats_text = f'Healthy: μ={np.mean(healthy_indices):.2f}, σ={np.std(healthy_indices):.2f}\n'
+    stats_text += f'Damaged: μ={np.mean(damaged_indices):.2f}, σ={np.std(damaged_indices):.2f}'
+    plt.text(0.02, 0.98, stats_text, transform=plt.gca().transAxes, 
+             verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+    
+    plt.tight_layout()
+    return plt.gcf(), plt.gca()
+
+def plot_roc_curve(healthy_di, damaged_di):
+    """
+    Plots the ROC curve for damage index-based classification.
+    
+    Parameters:
+    healthy_di: numpy.ndarray
+        Damage indexes for healthy samples.
+    damaged_di: numpy.ndarray
+        Damage indexes for damaged samples.
+    """
+    # Combine damage indexes and create labels
+    scores = np.concatenate([healthy_di, damaged_di])
+    labels = np.concatenate([np.zeros(len(healthy_di)), np.ones(len(damaged_di))])
+    
+    # Compute ROC curve
+    fpr, tpr, thresholds = roc_curve(labels, scores)
+    roc_auc = auc(fpr, tpr)  # Area under the ROC curve
+    
+    # Plot ROC curve
+    plt.figure(figsize=(10, 6))
+    plt.plot(fpr, tpr, color='blue', lw=2, label=f'ROC curve (AUC = {roc_auc:.2f})')
+    plt.plot([0, 1], [0, 1], color='gray', linestyle='--')  # Diagonal line
+    plt.title("ROC Curve: Healthy vs Damaged")
+    plt.xlabel("False Positive Rate (FPR)")
+    plt.ylabel("True Positive Rate (TPR)")
+    plt.legend(loc="lower right")
+    plt.grid(alpha=0.5)
+    plt.show()
+
 def main():
     # Define paths
     model_path = r'/Users/home/Documents/github/convolutional_autoencoder/models/autoencoder_best_model.keras'
-    healthy_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/healthy_accel_matrices_dof_4.npy'
-    anomalous_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_4_DAMAGE.npy'
+    healthy_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/healthy_acc_vehicle_data_dof_4.npy'
+    anomalous_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/damaged_acc_vehicle_data_dof_4.npy'
     # Load the trained DAE model
-    dae_model = load_dae_model(model_path)
+    autoencoder_model = load_dae_model(model_path)
     
     # Load healthy and anomalous signals
     healthy_data, anomalous_data = load_signals(healthy_path, anomalous_path)
 
-    healthy_data_mae = calculate_maes(dae_model, healthy_data)
-    anomalous_data_mae = calculate_maes(dae_model, anomalous_data)
+    healthy_maes = calculate_maes(autoencoder_model, healthy_data)
+    anomalous_maes = calculate_maes(autoencoder_model, anomalous_data)
+
+    baseline_params = fit_mae_distribution(healthy_maes, plot=False)
 
     # Generate subsets for healthy and damaged MAEs
-    healthy_subsets, damaged_subsets = sample_mae_subsets(healthy_data_mae, anomalous_data_mae)
+    healthy_subsets, damaged_subsets = sample_mae_subsets(healthy_maes, anomalous_maes)
 
     # Sample 60 random entries from each subset
     healthy_samples = [tf.gather(subset, tf.random.shuffle(tf.range(tf.shape(subset)[0]))[:10]) for subset in healthy_subsets]
     damaged_samples = [tf.gather(subset, tf.random.shuffle(tf.range(tf.shape(subset)[0]))[:10]) for subset in damaged_subsets]
 
-    healthy_params = fit_lognormal_parameters(healthy_samples)
-    damaged_params = fit_lognormal_parameters(damaged_samples)
+    healthy_samples_np = [tensor.numpy() for tensor in healthy_samples]
+    damaged_samples_np = [tensor.numpy() for tensor in damaged_samples]
 
-    damage_indices = calculate_di(healthy_params, damaged_params)
-    print("Damage Indices (KL Divergence):", damage_indices)
-    
-    # plot_lognormal_fits(healthy_samples, healthy_params, 'Healthy')
-    # plot_lognormal_fits(damaged_samples, damaged_params, 'Damaged')
+    healthy_di = calculate_sample_damage_indexes(healthy_samples_np, baseline_params)
+    damaged_di = calculate_sample_damage_indexes(damaged_samples_np, baseline_params)
 
-    # compare_lognormal_pairs(healthy_params, damaged_params)
+    fig, ax = plot_damage_indices(healthy_di, damaged_di)
+    plt.show()
 
-    # plot_mae_distributions(healthy_samples, damaged_samples)
-
-    # plot_distribution_subplots(healthy_samples, 'Healthy', 'green')
-    # plot_distribution_subplots(damaged_samples, 'Damaged', 'red')
+    plot_roc_curve(healthy_di, damaged_di)
 
 if __name__ == '__main__':
     main()
