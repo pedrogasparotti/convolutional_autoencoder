@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Path to the normalized data file
-data_path = '/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/healthy_accel_matrices_dof_4.npy'
+data_path = '/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/healthy_acc_vehicle_data_dof_4.npy'
 
 # Load the data
 data = np.load(data_path)
@@ -11,7 +11,7 @@ data = np.load(data_path)
 print(f"Data shape: {data.shape}")
 
 # Select 5 signals to plot
-num_signals = 1
+num_signals = 10
 selected_signals = data[:num_signals]
 
 # Plot each signal after flattening

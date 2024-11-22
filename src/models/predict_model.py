@@ -43,9 +43,27 @@ def load_signals(healthy_path, anomalous_path):
     
     healthy_data = np.load(healthy_path)
     anomalous_data = np.load(anomalous_path)
-    
-    print(f"Loaded {healthy_data.shape[0]} healthy signals and {anomalous_data.shape[0]} anomalous signals.")
     return healthy_data, anomalous_data
+
+def load_val_signals(path):
+    """
+    Loads healthy and anomalous signal databases from .npy files.
+    
+    Parameters:
+    - healthy_path (str): Path to the healthy signals .npy file.
+    - anomalous_path (str): Path to the anomalous signals .npy file.
+    
+    Returns:
+    - healthy_data (np.ndarray): Array of healthy signals.
+    - anomalous_data (np.ndarray): Array of anomalous signals.
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Healthy signals file not found at {path}")
+    
+    data = np.load(path)
+    
+    print(f"Loaded {data.shape[0]} signals.")
+    return data
 
 def calculate_maes(model, data):
     """
@@ -447,17 +465,20 @@ def main():
     # Define paths
     model_path = r'/Users/home/Documents/github/convolutional_autoencoder/models/autoencoder_best_model.keras'
     healthy_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/healthy_acc_vehicle_data_dof_4.npy'
+    baseline_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/healthy_acc_vehicle_data_dof_4_baseline.npy'
     anomalous_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/damaged_acc_vehicle_data_dof_4.npy'
     # Load the trained DAE model
     autoencoder_model = load_dae_model(model_path)
     
-    # Load healthy and anomalous signals
+    # Load baseline, healthy and anomalous signals
+    baseline_data = load_val_signals(baseline_path)
     healthy_data, anomalous_data = load_signals(healthy_path, anomalous_path)
 
     healthy_maes = calculate_maes(autoencoder_model, healthy_data)
     anomalous_maes = calculate_maes(autoencoder_model, anomalous_data)
+    baseline_maes = calculate_maes(autoencoder_model, baseline_data)
 
-    baseline_params = fit_mae_distribution(healthy_maes, plot=False)
+    baseline_params = fit_mae_distribution(baseline_maes, plot=False)
 
     # Generate subsets for healthy and damaged MAEs
     healthy_subsets, damaged_subsets = sample_mae_subsets(healthy_maes, anomalous_maes)
@@ -475,7 +496,7 @@ def main():
     fig, ax = plot_damage_indices(healthy_di, damaged_di)
     plt.show()
 
-    plot_roc_curve(healthy_di, damaged_di)
+    # plot_roc_curve(healthy_di, damaged_di)
 
 if __name__ == '__main__':
     main()
