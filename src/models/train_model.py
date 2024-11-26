@@ -63,7 +63,7 @@ def alternative_scheduler(epoch, lr):
         # Reduce by 5% every 20 epochs
         decay = 0.95 ** ((epoch - 20) // 20)
         new_lr = initial_lr * decay
-        return max(new_lr, min_lr)  
+        return max(new_lr, min_lr) 
 
 def plot_reconstruction(original, reconstructed, num_signals=5):
     """
