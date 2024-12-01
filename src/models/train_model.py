@@ -20,7 +20,7 @@ from models.autoencoder import (
 )
 
 # Define data path
-data_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_baseline.npy'
+data_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_baseline_train.npy'
 
 def load_data(data_path):
     """
@@ -95,15 +95,18 @@ def main():
     if len(data.shape) == 3:
         data = data[..., np.newaxis]
     
-    # Split data into training and validation sets
-    x_train, x_val = train_test_split(data, test_size=0.2, random_state=42)
-
+    # First split: separate test set (e.g., 20% of total data)
+    x_train_val, x_test = train_test_split(data, test_size=0.2, random_state=42)
+    
+    # Second split: separate validation set from remaining data
+    x_train, x_val = train_test_split(x_train_val, test_size=0.2, random_state=42)
+    
     # Build and compile the model
     input_shape = (44, 44, 1)
     autoencoder = build_autoencoder_single_model(input_shape=input_shape)
     autoencoder = compile_autoencoder(autoencoder,
-                                      optimizer = tf.keras.optimizers.Adam(learning_rate=0.001,clipnorm=1.0),
-                                      loss='mae')
+                                    optimizer=tf.keras.optimizers.Adam(learning_rate=0.001, clipnorm=1.0),
+                                    loss='mae')
 
     # Plot the model architecture
     architecture_file = r'/Users/home/Documents/github/convolutional_autoencoder/models/autoencoder_architecture.png'
@@ -133,7 +136,9 @@ def main():
     history_path = r'/Users/home/Documents/github/convolutional_autoencoder/models/training_history.npy'
     np.save(history_path, history.history)
     print(f"Training history saved to {history_path}")
-
+    
+    test_loss = autoencoder.evaluate(x_test, x_test)
+    print(f"Test set loss: {test_loss}")
     # Visualize reconstruction results
     reconstructed_signals = autoencoder.predict(x_val[:5])
     plot_reconstruction(x_val, reconstructed_signals, num_signals=5)
