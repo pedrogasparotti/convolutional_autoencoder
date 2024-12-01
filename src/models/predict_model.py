@@ -7,6 +7,7 @@ import scipy.stats as stats
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve, auc
 import os
+import pandas as pd
 
 def load_dae_model(model_path):
     """
@@ -512,6 +513,38 @@ def plot_multiple_roc_curves(healthy_di, damaged_di, damaged_10pc_di):
     plt.grid(True)
     plt.show()
 
+def create_dataset_from_damage_indices(healthy_di, damage_5pc_di, damaged_10pc_di):
+    """
+    Create a labeled dataset from damage indexes.
+
+    Parameters:
+    healthy_di: numpy.ndarray
+        Array of damage indexes for healthy samples.
+    damage_5pc_di: numpy.ndarray
+        Array of damage indexes for 5% damage samples.
+    damaged_10pc_di: numpy.ndarray
+        Array of damage indexes for 10% damage samples.
+
+    Returns:
+    dataset: pandas.DataFrame
+        A DataFrame containing damage indexes and their associated labels.
+    """
+    import pandas as pd
+
+    # Create DataFrames for each condition
+    df_healthy = pd.DataFrame({'Damage_Index': healthy_di, 'Condition': 'Healthy'})
+    df_5pc = pd.DataFrame({'Damage_Index': damage_5pc_di, 'Condition': '5% Damage'})
+    df_10pc = pd.DataFrame({'Damage_Index': damaged_10pc_di, 'Condition': '10% Damage'})
+
+    # Combine all DataFrames
+    dataset = pd.concat([df_healthy, df_5pc, df_10pc], ignore_index=True)
+
+    # Map conditions to numerical labels
+    label_mapping = {'Healthy': 0, '5% Damage': 1, '10% Damage': 2}
+    dataset['Label'] = dataset['Condition'].map(label_mapping)
+
+    return dataset
+
 def main():
     
     # Define paths
@@ -527,12 +560,12 @@ def main():
     # Load baseline, healthy and anomalous signals
     baseline_data = load_val_signals(baseline_path)
     healthy_data = load_val_signals(healthy_path)
-    anomalous_data = load_val_signals(anomalous_path)
+    anomalous_data_5pc = load_val_signals(anomalous_path)
     anomalous_data_10pc = load_val_signals(anomalous_path_10pc)
 
     # Calculate MAEs for all datasets
     healthy_maes = calculate_maes(autoencoder_model, healthy_data)
-    anomalous_maes = calculate_maes(autoencoder_model, anomalous_data)
+    anomalous_maes_5pc = calculate_maes(autoencoder_model, anomalous_data_5pc)
     anomalous_maes_10pc = calculate_maes(autoencoder_model, anomalous_data_10pc)
     baseline_maes = calculate_maes(autoencoder_model, baseline_data)
 
@@ -541,7 +574,7 @@ def main():
 
     # Generate subsets for all datasets
     healthy_subsets = sample_mae_subsets(healthy_maes)
-    damaged_subsets = sample_mae_subsets(anomalous_maes)
+    damaged_subsets_5pc = sample_mae_subsets(anomalous_maes_5pc)
     damaged_10pc_subsets = sample_mae_subsets(anomalous_maes_10pc)
 
     # Sample from each subset
@@ -549,7 +582,7 @@ def main():
                       for subset in healthy_subsets]
     
     damaged_samples = [tf.gather(subset, tf.random.shuffle(tf.range(tf.shape(subset)[0]))[:10]) 
-                      for subset in damaged_subsets]
+                      for subset in damaged_subsets_5pc]
     
     damaged_10pc_samples = [tf.gather(subset, tf.random.shuffle(tf.range(tf.shape(subset)[0]))[:10]) 
                           for subset in damaged_10pc_subsets]
@@ -561,18 +594,104 @@ def main():
 
     # Calculate damage indices
     healthy_di = calculate_sample_damage_indexes(healthy_samples_np, baseline_params)
-    damaged_di = calculate_sample_damage_indexes(damaged_samples_np, baseline_params)
+    damaged_di_5pc = calculate_sample_damage_indexes(damaged_samples_np, baseline_params)
     damaged_10pc_di = calculate_sample_damage_indexes(damaged_10pc_samples_np, baseline_params)
 
     # Plot damage indices for all three datasets
-    fig, ax = plot_damage_indices_three_sets(healthy_di, damaged_di, damaged_10pc_di, 
-                                           labels=['Healthy', 'Damage Five', '10% Damage'])
+    fig, ax = plot_damage_indices_three_sets(healthy_di, damaged_di_5pc, damaged_10pc_di,
+                                             labels=['Healthy', '5% Damage', '10% Damage'])
     plt.show()
 
-    # Optional: Plot ROC curves for both damage scenarios
-    plot_multiple_roc_curves(healthy_di, damaged_di, damaged_10pc_di)
+    # Create labeled dataset from damage indices
+    dataset = create_dataset_from_damage_indices(healthy_di, damaged_di_5pc, damaged_10pc_di)
 
-if __name__ == '__main__':
-    main()
+    print(dataset.tail())
+
+    # Prepare data for SVM
+    X = dataset[['Damage_Index']].values
+    y = dataset['Condition'].values
+
+    # Split data into training and testing sets
+    from sklearn.model_selection import train_test_split
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, stratify=y, random_state=42
+    )
+
+    # Feature scaling
+    from sklearn.preprocessing import StandardScaler
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+
+    # Initialize and train the SVM classifier
+    from sklearn.svm import SVC
+    import seaborn as sns
+    svm_classifier = SVC(kernel='rbf', random_state=42)
+    svm_classifier.fit(X_train_scaled, y_train)
+
+    # Make predictions on the test set
+    y_pred = svm_classifier.predict(X_test_scaled)
+
+    # Evaluate the classifier
+    from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc
+    print("Classification Report:")
+    print(classification_report(y_test, y_pred, target_names=['Healthy', '5% Damage', '10% Damage']))
+
+    cm = confusion_matrix(y_test, y_pred)
+    cm_df = pd.DataFrame(cm, index=['Healthy', '5% Damage', '10% Damage'],
+                         columns=['Predicted Healthy', 'Predicted 5% Damage', 'Predicted 10% Damage'])
+
+    # Plot the confusion matrix
+    plt.figure(figsize=(6, 4))
+    sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues')
+    plt.title('Confusion Matrix')
+    plt.ylabel('Actual Condition')
+    plt.xlabel('Predicted Condition')
+    plt.show()
+
+    # Now, plot ROC curves for Healthy vs 5% Damage and Healthy vs 10% Damage
+
+    # Healthy vs 5% Damage
+    # Prepare data
+    di_h_vs_5pc = np.concatenate([healthy_di, damaged_di_5pc])
+    labels_h_vs_5pc = np.concatenate([np.zeros(len(healthy_di)), np.ones(len(damaged_di_5pc))])
+
+    # Compute ROC curve and AUC
+    fpr_h_vs_5pc, tpr_h_vs_5pc, _ = roc_curve(labels_h_vs_5pc, di_h_vs_5pc)
+    auc_h_vs_5pc = auc(fpr_h_vs_5pc, tpr_h_vs_5pc)
+
+    # Plot ROC curve
+    plt.figure()
+    plt.plot(fpr_h_vs_5pc, tpr_h_vs_5pc, color='darkorange',
+             lw=2, label='ROC curve (area = %0.2f)' % auc_h_vs_5pc)
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.title('ROC Curve: Healthy vs 5% Damage')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.legend(loc='lower right')
+    plt.grid(True)
+    plt.show()
+
+    # Healthy vs 10% Damage
+    # Prepare data
+    di_h_vs_10pc = np.concatenate([healthy_di, damaged_10pc_di])
+    labels_h_vs_10pc = np.concatenate([np.zeros(len(healthy_di)), np.ones(len(damaged_10pc_di))])
+
+    # Compute ROC curve and AUC
+    fpr_h_vs_10pc, tpr_h_vs_10pc, _ = roc_curve(labels_h_vs_10pc, di_h_vs_10pc)
+    auc_h_vs_10pc = auc(fpr_h_vs_10pc, tpr_h_vs_10pc)
+
+    # Plot ROC curve
+    plt.figure()
+    plt.plot(fpr_h_vs_10pc, tpr_h_vs_10pc, color='green',
+             lw=2, label='ROC curve (area = %0.2f)' % auc_h_vs_10pc)
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.title('ROC Curve: Healthy vs 10% Damage')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.legend(loc='lower right')
+    plt.grid(True)
+    plt.show()
+
 if __name__ == '__main__':
     main()
