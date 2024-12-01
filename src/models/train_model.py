@@ -20,7 +20,7 @@ from models.autoencoder import (
 )
 
 # Define data path
-data_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_baseline.npy'
+data_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_baseline_train.npy'
 
 def load_data(data_path):
     """
