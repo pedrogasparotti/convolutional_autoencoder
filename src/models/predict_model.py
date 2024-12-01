@@ -549,10 +549,10 @@ def main():
     
     # Define paths
     model_path = r'/Users/home/Documents/github/convolutional_autoencoder/models/autoencoder_best_model.keras'
-    baseline_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_baseline_healthy.npy'
-    healthy_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_baseline_train.npy'
-    anomalous_path_10pc = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_5pc.npy'
-    anomalous_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_10pc.npy'
+    healthy_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_baseline_val.npy'
+    baseline_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_baseline_train.npy'
+    anomalous_path_5pc = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_5pc.npy'
+    anomalous_path_10pc = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_10pc.npy'
 
     # Load the trained DAE model
     autoencoder_model = load_dae_model(model_path)
@@ -560,7 +560,7 @@ def main():
     # Load baseline, healthy and anomalous signals
     baseline_data = load_val_signals(baseline_path)
     healthy_data = load_val_signals(healthy_path)
-    anomalous_data_5pc = load_val_signals(anomalous_path)
+    anomalous_data_5pc = load_val_signals(anomalous_path_5pc)
     anomalous_data_10pc = load_val_signals(anomalous_path_10pc)
 
     # Calculate MAEs for all datasets

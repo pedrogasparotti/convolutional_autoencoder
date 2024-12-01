@@ -70,7 +70,11 @@ def transform_to_matrices(dados, target_shape, normalize=True):
     print(f"Final matrix shape: {accel_matrices.shape}")
     return accel_matrices
 
+<<<<<<< HEAD
 def save_matrices(matrices, output_path, file_name="acc_vehicle_data_dof_10pc.npy"):
+=======
+def save_matrices(matrices, output_path, file_name="acc_vehicle_data_dof_6_5pc.npy"):
+>>>>>>> test
     """
     Saves the 3D matrix data to a .npy file.
     Parameters:
@@ -78,13 +82,17 @@ def save_matrices(matrices, output_path, file_name="acc_vehicle_data_dof_10pc.np
         output_path (str): Directory to save the .npy file.
         file_name (str): Name of the .npy file.
     """
-    
     os.makedirs(output_path, exist_ok=True)
     file_path = os.path.join(output_path, file_name)
     np.save(file_path, matrices)
     print(f"Matrix data saved to {file_path}")
 
+<<<<<<< HEAD
 file_path = "/Users/home/Documents/github/convolutional_autoencoder/data/vbi_2d_10pc/acc_vehicle_data_dof_6_10pc_dmg.csv"
+=======
+# Example usage:
+file_path = "/Users/home/Documents/github/convolutional_autoencoder/data/vbi_2d_5pc/acc_vehicle_data_dof_6_5pc.csv"
+>>>>>>> test
 output_path = "/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy"
 
 # Process
@@ -92,6 +100,10 @@ dados = load_csv_data(file_path)
 if dados is not None:
     # Now you can use either (44, 44) or any other square matrix size
 
+<<<<<<< HEAD
     target_shape = (44, 44)  # or (whatever height, whatever width) you need
+=======
+    target_shape = (44, 44)  
+>>>>>>> test
     accel_matrices = transform_to_matrices(dados, target_shape)
     save_matrices(accel_matrices, output_path)
