@@ -141,7 +141,7 @@ def plot_distribution_fit(data, dist, params):
     plt.grid(True, alpha=0.3)
     plt.show()
 
-def sample_mae_subsets(healthy_maes, damaged_maes, num_subsets=60, samples_per_subset=10):
+def sample_mae_subsets(maes, num_subsets=60, samples_per_subset=10):
     """
     Generate random subsets of MAE values for both healthy and damaged conditions.
 
@@ -160,14 +160,12 @@ def sample_mae_subsets(healthy_maes, damaged_maes, num_subsets=60, samples_per_s
                 for _ in range(num_subsets)]
 
     # Create subsets for healthy and damaged conditions
-    healthy_samples = create_samples(healthy_maes)
-    damaged_samples = create_samples(damaged_maes)
+    samples = create_samples(maes)
 
     # Convert list of tensors into a stacked tensor for easy handling
-    healthy_samples_tensor = tf.stack(healthy_samples)
-    damaged_samples_tensor = tf.stack(damaged_samples)
+    samples_tensor = tf.stack(samples)
 
-    return healthy_samples_tensor, damaged_samples_tensor
+    return samples_tensor
 
 def analyze_individual_distributions(mae_samples):
     """
@@ -461,42 +459,119 @@ def plot_roc_curve(healthy_di, damaged_di):
     plt.grid(alpha=0.5)
     plt.show()
 
+def plot_damage_indices_three_sets(healthy_di, damaged_di, damaged_10pc_di, labels=['Healthy', 'Damaged', '10% Damaged']):
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Create box plots for all three datasets
+    bp = ax.boxplot([healthy_di, damaged_di, damaged_10pc_di], 
+                labels=labels,
+                patch_artist=True)
+    
+    # Customize colors
+    colors = ['lightgreen', 'lightcoral', 'lightskyblue']
+    for patch, color in zip(bp['boxes'], colors):
+        patch.set_facecolor(color)
+    
+    ax.set_ylabel('Damage Index')
+    ax.set_title('Damage Index Comparison')
+    ax.grid(True)
+    
+    return fig, ax
+
+def plot_multiple_roc_curves(healthy_di, damaged_di, damaged_10pc_di):
+    plt.figure(figsize=(10, 6))
+    
+    # Calculate ROC curves for both damage scenarios
+    y_true_five = ['Damaged'] * len(damaged_di) + ['Healthy'] * len(healthy_di)
+    y_scores_five = damaged_di + healthy_di
+    
+    y_true_10pc = ['Damaged'] * len(damaged_10pc_di) + ['Healthy'] * len(healthy_di)
+    y_scores_10pc = damaged_10pc_di + healthy_di
+    
+    # Plot ROC curve for Damage Five
+    fpr_five, tpr_five, _ = roc_curve([1 if y == 'Damaged' else 0 for y in y_true_five], y_scores_five)
+    roc_auc_five = auc(fpr_five, tpr_five)
+    plt.plot(fpr_five, tpr_five, color='darkorange', lw=2, 
+             label=f'Damage Five ROC (area = {roc_auc_five:.2f})')
+    
+    # Plot ROC curve for 10% Damage
+    fpr_10pc, tpr_10pc, _ = roc_curve([1 if y == 'Damaged' else 0 for y in y_true_10pc], y_scores_10pc)
+    roc_auc_10pc = auc(fpr_10pc, tpr_10pc)
+    plt.plot(fpr_10pc, tpr_10pc, color='blue', lw=2, 
+             label=f'10% Damage ROC (area = {roc_auc_10pc:.2f})')
+    
+    # Plot diagonal line
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic')
+    plt.legend(loc="lower right")
+    plt.grid(True)
+    plt.show()
+
 def main():
     # Define paths
     model_path = r'/Users/home/Documents/github/convolutional_autoencoder/models/autoencoder_best_model.keras'
-    healthy_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/healthy_acc_vehicle_data_dof_4.npy'
-    baseline_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/healthy_acc_vehicle_data_dof_4_baseline.npy'
-    anomalous_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/damaged_acc_vehicle_data_dof_4.npy'
+    healthy_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_baseline.npy'
+    baseline_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_baseline.npy'
+    anomalous_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_5pc_dmg.npy'
+    anomalous_path_10pc = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_10pc_dmg.npy'
+
     # Load the trained DAE model
     autoencoder_model = load_dae_model(model_path)
-    
+
     # Load baseline, healthy and anomalous signals
     baseline_data = load_val_signals(baseline_path)
-    healthy_data, anomalous_data = load_signals(healthy_path, anomalous_path)
+    healthy_data = load_val_signals(healthy_path)
+    anomalous_data = load_val_signals(anomalous_path)
+    anomalous_data_10pc = load_val_signals(anomalous_path_10pc)
 
+    # Calculate MAEs for all datasets
     healthy_maes = calculate_maes(autoencoder_model, healthy_data)
     anomalous_maes = calculate_maes(autoencoder_model, anomalous_data)
+    anomalous_maes_10pc = calculate_maes(autoencoder_model, anomalous_data_10pc)
     baseline_maes = calculate_maes(autoencoder_model, baseline_data)
 
+    # Fit baseline distribution
     baseline_params = fit_mae_distribution(baseline_maes, plot=False)
 
-    # Generate subsets for healthy and damaged MAEs
-    healthy_subsets, damaged_subsets = sample_mae_subsets(healthy_maes, anomalous_maes)
+    # Generate subsets for all datasets
+    healthy_subsets = sample_mae_subsets(healthy_maes)
+    damaged_subsets = sample_mae_subsets(anomalous_maes)
+    damaged_10pc_subsets = sample_mae_subsets(anomalous_maes_10pc)
 
-    # Sample 60 random entries from each subset
-    healthy_samples = [tf.gather(subset, tf.random.shuffle(tf.range(tf.shape(subset)[0]))[:10]) for subset in healthy_subsets]
-    damaged_samples = [tf.gather(subset, tf.random.shuffle(tf.range(tf.shape(subset)[0]))[:10]) for subset in damaged_subsets]
+    # Sample from each subset
+    healthy_samples = [tf.gather(subset, tf.random.shuffle(tf.range(tf.shape(subset)[0]))[:10]) 
+                      for subset in healthy_subsets]
+    
+    damaged_samples = [tf.gather(subset, tf.random.shuffle(tf.range(tf.shape(subset)[0]))[:10]) 
+                      for subset in damaged_subsets]
+    
+    damaged_10pc_samples = [tf.gather(subset, tf.random.shuffle(tf.range(tf.shape(subset)[0]))[:10]) 
+                          for subset in damaged_10pc_subsets]
 
+    # Convert to numpy arrays
     healthy_samples_np = [tensor.numpy() for tensor in healthy_samples]
     damaged_samples_np = [tensor.numpy() for tensor in damaged_samples]
+    damaged_10pc_samples_np = [tensor.numpy() for tensor in damaged_10pc_samples]
 
+    # Calculate damage indices
     healthy_di = calculate_sample_damage_indexes(healthy_samples_np, baseline_params)
     damaged_di = calculate_sample_damage_indexes(damaged_samples_np, baseline_params)
+    damaged_10pc_di = calculate_sample_damage_indexes(damaged_10pc_samples_np, baseline_params)
 
-    fig, ax = plot_damage_indices(healthy_di, damaged_di)
+    # Plot damage indices for all three datasets
+    fig, ax = plot_damage_indices_three_sets(healthy_di, damaged_di, damaged_10pc_di, 
+                                           labels=['Healthy', 'Damage Five', '10% Damage'])
     plt.show()
 
-    # plot_roc_curve(healthy_di, damaged_di)
+    # Optional: Plot ROC curves for both damage scenarios
+    plot_multiple_roc_curves(healthy_di, damaged_di, damaged_10pc_di)
 
+if __name__ == '__main__':
+    main()
 if __name__ == '__main__':
     main()

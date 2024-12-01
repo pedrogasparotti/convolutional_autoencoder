@@ -22,14 +22,14 @@ def build_autoencoder_single_model(input_shape=(44, 44, 1), latent_dim=128):
     x = layers.Dropout(0.3)(x)
     x = layers.Conv2D(128, (3, 3), activation='relu', padding='same', kernel_regularizer=l2(0.01))(x)
     x = layers.BatchNormalization()(x)
-    x = layers.MaxPooling2D((2, 2), padding='same')(x)  # Output: (11, 11, 128)
+    x = layers.MaxPooling2D((2, 2), padding='same')(x)  #(11, 11, 128)
 
     x = layers.Conv2D(256, (3, 3), activation='relu', padding='same', kernel_regularizer=l2(0.01))(x)
     x = layers.BatchNormalization()(x)
     x = layers.Dropout(0.3)(x)
     x = layers.Conv2D(256, (3, 3), activation='relu', padding='same', kernel_regularizer=l2(0.01))(x)
     x = layers.BatchNormalization()(x)
-    encoded = layers.MaxPooling2D((2, 2), padding='same', name='encoded_layer')(x)  # Output: (6, 6, 256)
+    encoded = layers.MaxPooling2D((2, 2), padding='same', name='encoded_layer')(x)  #(6, 6, 256)
 
     # Flatten and bottleneck (latent space)
     x = layers.Flatten()(x)
@@ -38,21 +38,21 @@ def build_autoencoder_single_model(input_shape=(44, 44, 1), latent_dim=128):
     # Decoder
     x = layers.Conv2DTranspose(256, (3, 3), activation='relu', padding='same')(encoded)
     x = layers.BatchNormalization()(x)
-    x = layers.UpSampling2D((2, 2))(x)  # Output: (12, 12, 256)
+    x = layers.UpSampling2D((2, 2))(x)  # (12, 12, 256)
 
     x = layers.Conv2DTranspose(128, (3, 3), activation='relu', padding='same')(x)
     x = layers.BatchNormalization()(x)
-    x = layers.UpSampling2D((2, 2))(x)  # Output: (24, 24, 128)
+    x = layers.UpSampling2D((2, 2))(x)  # (24, 24, 128)
 
     x = layers.Conv2DTranspose(64, (3, 3), activation='relu', padding='same')(x)
     x = layers.BatchNormalization()(x)
     x = layers.UpSampling2D((2, 2))(x)
 
-    # Adjust to match the original input shape (44, 44)
-    x = layers.Cropping2D(((2, 2), (2, 2)))(x)  # Crop to (44, 44, 64)
+    # match the original input shape (44, 44)
+    x = layers.Cropping2D(((2, 2), (2, 2)))(x)
 
     # Final layer with sigmoid activation for output range [0, 1]
-    decoded = layers.Conv2D(1, (3, 3), activation='sigmoid', padding='same', name='decoder_output')(x)  # Output: (44, 44, 1)
+    decoded = layers.Conv2D(1, (3, 3), activation='sigmoid', padding='same', name='decoder_output')(x)  # (44, 44, 1)
 
     autoencoder = models.Model(inputs, decoded, name='Autoencoder')
     return autoencoder

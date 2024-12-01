@@ -6,8 +6,8 @@ from sklearn.model_selection import train_test_split
 def load_dataset():
 
     # Load the .mat files
-    results_mat = scipy.io.loadmat('results.mat')
-    dano_labels_mat = scipy.io.loadmat('dano_labels.mat')
+    results_mat = scipy.io.loadmat('/Users/home/Documents/github/convolutional_autoencoder/data/benchmark/results.mat')
+    dano_labels_mat = scipy.io.loadmat('/Users/home/Documents/github/convolutional_autoencoder/data/benchmark/dano_labels.mat')
 
     # Extract data from .mat files
     results = np.squeeze(results_mat['results'])

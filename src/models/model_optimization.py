@@ -12,12 +12,7 @@ import keras
 
 # Define the build_autoencoder function
 def build_autoencoder(
-    input_shape=(44, 44, 1),
-    conv_filters=[64, 128, 256],
-    conv_kernel_sizes=[3, 3, 3],
     conv_activations=['relu', 'relu', 'relu'],
-    pool_sizes=[(2, 2), (2, 2), (2, 2)],
-    dropout_rates=[0.3, 0.3, 0.3],
     kernel_regularizer=0.01,
     latent_dim=256
 ):

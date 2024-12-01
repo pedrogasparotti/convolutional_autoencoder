@@ -1,7 +1,7 @@
 import numpy as np
 
 # Path to the saved .npy file
-file_path = "/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/healthy_accel_matrices.npy"
+file_path = "/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_4_DAMAGE_FIVE.npy"
 
 # Load the saved matrices
 accel_matrices = np.load(file_path)
