@@ -14,7 +14,7 @@ def build_autoencoder_single_model(input_shape=(44, 44, 1), latent_dim=128):
     x = layers.Dropout(0.3)(x)
     x = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
     x = layers.BatchNormalization()(x)
-    x = layers.MaxPooling2D((2, 2), padding='same')(x)  # Output: (22, 22, 64)
+    x = layers.MaxPooling2D((2, 2), padding='same')(x)  # (22, 22, 64)
 
     x = layers.Conv2D(128, (3, 3), activation='relu', padding='same', kernel_regularizer=l2(0.01))(x)
     x = layers.LeakyReLU(alpha=0.1)(x)

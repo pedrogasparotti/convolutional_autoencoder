@@ -1,227 +1,206 @@
-import keras_tuner as kt
-import numpy as np
-from sklearn.model_selection import train_test_split
-import tensorflow as tf
-from tensorflow.keras import layers, models, regularizers
-from tensorflow.keras.layers import Input
-from tensorflow.keras.regularizers import l2
 import os
 import sys
+import time
+import numpy as np
+import tensorflow as tf
+from datetime import datetime
+from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
-import keras
+from pathlib import Path
 
-# Define the build_autoencoder function
-def build_autoencoder(
-    conv_activations=['relu', 'relu', 'relu'],
-    kernel_regularizer=0.01,
-    latent_dim=256
-):
-    inputs = layers.Input(shape=input_shape, name='encoder_input')
-    x = inputs
+# Add project root to path for imports
+project_root = Path('/Users/home/Documents/github/convolutional_autoencoder')
+sys.path.append(str(project_root))
 
-    # Encoder
-    for i in range(len(conv_filters)):
-        x = layers.Conv2D(
-            filters=conv_filters[i],
-            kernel_size=conv_kernel_sizes[i],
-            activation=conv_activations[i],
-            padding='same',
-            kernel_regularizer=regularizers.l2(kernel_regularizer)
-        )(x)
-        x = layers.BatchNormalization()(x)
-        if dropout_rates[i] > 0:
-            x = layers.Dropout(dropout_rates[i])(x)
-        x = layers.MaxPooling2D(pool_sizes[i], padding='same')(x)
+# Import the alternative autoencoder
+from models.alternative_autoencoder import build_improved_autoencoder, compile_improved_autoencoder
 
-    # Calculate shape before flattening (static calculation)
-    # After 3 poolings with (2,2): ceil(44/2^3) = ceil(44/8) = 6
-    shape_before_flattening = [
-        6,  # height
-        6,  # width
-        conv_filters[-1]  # channels
-    ]
-
-    # Bottleneck
-    x = layers.Flatten()(x)
-    x = layers.Dense(latent_dim, activation='relu', name='encoded_layer')(x)
-
-    # Decoder
-    decoder_units = np.prod(shape_before_flattening)  # 6*6*256=9216
-    x = layers.Dense(decoder_units, activation='relu')(x)
-    x = layers.Reshape(shape_before_flattening)(x)
-
-    for i in reversed(range(len(conv_filters))):
-        x = layers.Conv2DTranspose(
-            filters=conv_filters[i],
-            kernel_size=conv_kernel_sizes[i],
-            activation=conv_activations[i],
-            padding='same',
-            kernel_regularizer=regularizers.l2(kernel_regularizer)
-        )(x)
-        x = layers.BatchNormalization()(x)
-        if dropout_rates[i] > 0:
-            x = layers.Dropout(dropout_rates[i])(x)
-        x = layers.UpSampling2D(pool_sizes[i])(x)
-
-    # Adjust dimensions to match input shape (44, 44, 1)
-    # After 3 upsamplings: 6→12→24→48
-    # Crop 2 from each side to get back to 44
-    x = layers.Cropping2D(((2, 2), (2, 2)))(x)  # (48, 48, filters) → (44, 44, filters)
-
-    # Output layer with sigmoid activation for [0, 1] range
-    outputs = layers.Conv2D(
-        filters=1,
-        kernel_size=conv_kernel_sizes[0],
-        activation='sigmoid',
-        padding='same',
-        name='decoder_output'
-    )(x)
-
-    autoencoder = models.Model(inputs, outputs, name='Autoencoder')
-    return autoencoder
-
-# Define the model_builder function
-def model_builder(hp):
-    # Hyperparameter definitions
-    conv_filters = [
-        hp.Int(f'conv_filters_{i}', min_value=32, max_value=256, step=32)
-        for i in range(3)
-    ]
-    conv_kernel_sizes = [
-        hp.Choice(f'conv_kernel_size_{i}', values=[3, 5])
-        for i in range(3)
-    ]
-    conv_activations = [
-        hp.Choice(f'conv_activation_{i}', values=['relu', 'leaky_relu', 'elu'])
-        for i in range(3)
-    ]
-    dropout_rates = [
-        hp.Float(f'dropout_rate_{i}', min_value=0.0, max_value=0.5, step=0.1)
-        for i in range(3)
-    ]
-    kernel_regularizer = hp.Float('kernel_regularizer', min_value=1e-5, max_value=1e-2, sampling='log')
-    latent_dim = hp.Int('latent_dim', min_value=64, max_value=512, step=64)
-
-    # Build the model with the hyperparameters
-    autoencoder = build_autoencoder(
-        input_shape=(44, 44, 1),
-        conv_filters=conv_filters,
-        conv_kernel_sizes=conv_kernel_sizes,
-        conv_activations=conv_activations,
-        pool_sizes=[(2, 2)] * 3,
-        dropout_rates=dropout_rates,
-        kernel_regularizer=kernel_regularizer,
-        latent_dim=latent_dim
-    )
-
-    # Compile the model
-    autoencoder.compile(
-        optimizer='adam',
-        loss='mae',
-        metrics=['mae']
-    )
-
-    return autoencoder
-
-# Initialize the tuner
-tuner = kt.RandomSearch(
-    model_builder,
-    objective='val_loss',
-    max_trials=20,
-    executions_per_trial=1,
-    directory='hyperparam_tuning',
-    project_name='autoencoder_optimization'
-)
-
-# Define data path
-data_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/healthy_accel_matrices_dof_4.npy'
-
-def load_data(data_path):
-    """
-    Loads data from a .npy file.
-    """
+def load_and_preprocess_data(data_path):
+    """Load and preprocess the data."""
     data = np.load(data_path)
+    if len(data.shape) == 3:
+        data = data[..., np.newaxis]
     return data
 
-# Load and preprocess data
-data = load_data(data_path)
+def create_training_dirs():
+    """Create necessary directories for training artifacts."""
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    base_dir = project_root / 'training_outputs' / timestamp
+    
+    dirs = {
+        'models': base_dir / 'models',
+        'logs': base_dir / 'logs',
+        'plots': base_dir / 'plots'
+    }
+    
+    for dir_path in dirs.values():
+        dir_path.mkdir(parents=True, exist_ok=True)
+        
+    return dirs, timestamp
 
-# Ensure that the data shape is compatible
-# Expected shape: (num_samples, 44, 44, 1)
-if data.ndim == 3:
-    x_data = data.reshape(-1, 44, 44, 1).astype('float32')  # Reshape and convert to float32
-elif data.ndim == 4 and data.shape[-1] == 1:
-    x_data = data.astype('float32')
-else:
-    raise ValueError(f"Unexpected data shape: {data.shape}")
+def plot_training_history(history, plot_dir):
+    """Plot and save training history."""
+    plt.figure(figsize=(12, 4))
+    
+    # Loss plot
+    plt.subplot(1, 2, 1)
+    plt.plot(history.history['loss'], label='Training Loss')
+    plt.plot(history.history['val_loss'], label='Validation Loss')
+    plt.title('Model Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    
+    # Learning rate plot
+    plt.subplot(1, 2, 2)
+    plt.plot(history.history['lr'], label='Learning Rate')
+    plt.title('Learning Rate over Time')
+    plt.xlabel('Epoch')
+    plt.ylabel('Learning Rate')
+    plt.yscale('log')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig(plot_dir / 'training_history.png')
+    plt.close()
 
-# Normalize between 0 and 1
-x_data /= np.max(x_data)
+def plot_reconstructions(model, x_val, plot_dir, n_samples=5):
+    """Plot original vs reconstructed samples."""
+    reconstructions = model.predict(x_val[:n_samples])
+    
+    plt.figure(figsize=(15, 3*n_samples))
+    for i in range(n_samples):
+        # Original
+        plt.subplot(n_samples, 2, 2*i + 1)
+        plt.imshow(x_val[i].squeeze(), cmap='viridis')
+        plt.title(f'Original {i+1}')
+        plt.axis('off')
+        
+        # Reconstruction
+        plt.subplot(n_samples, 2, 2*i + 2)
+        plt.imshow(reconstructions[i].squeeze(), cmap='viridis')
+        plt.title(f'Reconstructed {i+1}')
+        plt.axis('off')
+    
+    plt.tight_layout()
+    plt.savefig(plot_dir / 'reconstructions.png')
+    plt.close()
 
-# Split data into training and validation sets
-x_train, x_val = train_test_split(x_data, test_size=0.2, random_state=42)
-
-# Start hyperparameter search
-tuner.search(
-    x_train, x_train,
-    epochs=20,
-    batch_size=32,
-    validation_data=(x_val, x_val),
-    callbacks=[
-        tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5)
+def get_callbacks(dirs, timestamp):
+    """Configure training callbacks."""
+    callbacks = [
+        # Model checkpoint
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=dirs['models'] / 'best_model.keras',
+            monitor='val_loss',
+            save_best_only=True,
+            mode='min',
+            verbose=1
+        ),
+        
+        # Early stopping
+        tf.keras.callbacks.EarlyStopping(
+            monitor='val_loss',
+            patience=15,
+            restore_best_weights=True,
+            verbose=1
+        ),
+        
+        # TensorBoard logging
+        tf.keras.callbacks.TensorBoard(
+            log_dir=dirs['logs'],
+            histogram_freq=1,
+            write_graph=True,
+            update_freq='epoch'
+        ),
+        
+        # CSV Logger
+        tf.keras.callbacks.CSVLogger(
+            dirs['logs'] / 'training_log.csv'
+        ),
+        
+        # Learning rate scheduler with warmup and cosine decay
+        tf.keras.callbacks.LearningRateScheduler(
+            lambda epoch: 
+            0.001 * (epoch + 1) / 10 if epoch < 10  # Warmup
+            else 0.001 * (1 + np.cos(np.pi * (epoch - 10) / 90)) / 2  # Cosine decay
+        )
     ]
-)
+    return callbacks
 
-# Retrieve the best hyperparameters
-best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
-print(f"""
-The hyperparameter search is complete. The optimal number of filters in the first Conv layer is {best_hps.get('conv_filters_0')},
-the second Conv layer is {best_hps.get('conv_filters_1')}, and the third Conv layer is {best_hps.get('conv_filters_2')}.
-The optimal kernel sizes are {best_hps.get('conv_kernel_size_0')}, {best_hps.get('conv_kernel_size_1')}, {best_hps.get('conv_kernel_size_2')}.
-The optimal activation functions are {best_hps.get('conv_activation_0')}, {best_hps.get('conv_activation_1')}, {best_hps.get('conv_activation_2')}.
-The optimal dropout rates are {best_hps.get('dropout_rate_0')}, {best_hps.get('dropout_rate_1')}, {best_hps.get('dropout_rate_2')}.
-The optimal kernel regularizer is {best_hps.get('kernel_regularizer')}.
-The optimal latent dimension is {best_hps.get('latent_dim')}.
-""")
+def main():
+    # Configuration
+    data_path = '/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_baseline.npy'
+    input_shape = (44, 44, 1)
+    batch_size = 32
+    epochs = 100
+    
+    # Create directories
+    dirs, timestamp = create_training_dirs()
+    print(f"Training outputs will be saved to {dirs['models'].parent}")
+    
+    # Load and split data
+    print("Loading and preprocessing data...")
+    data = load_and_preprocess_data(data_path)
+    x_train, x_val = train_test_split(data, test_size=0.2, random_state=42)
+    
+    # Build and compile model
+    print("Building and compiling model...")
+    model = build_improved_autoencoder(input_shape=input_shape)
+    model = compile_improved_autoencoder(model, use_sgd=True)  # Using SGD with momentum
+    
+    # Configure callbacks
+    callbacks = get_callbacks(dirs, timestamp)
+    
+    # Train model
+    print("Starting training...")
+    history = model.fit(
+        x_train, x_train,
+        batch_size=batch_size,
+        epochs=epochs,
+        validation_data=(x_val, x_val),
+        callbacks=callbacks,
+        verbose=1
+    )
+    
+    # Save final model
+    model.save(dirs['models'] / 'final_model.keras')
+    
+    # Plot training history
+    print("Generating training plots...")
+    plot_training_history(history, dirs['plots'])
+    
+    # Plot reconstructions
+    plot_reconstructions(model, x_val, dirs['plots'])
+    
+    # Save training configuration
+    config = {
+        'timestamp': timestamp,
+        'input_shape': input_shape,
+        'batch_size': batch_size,
+        'epochs': epochs,
+        'final_train_loss': float(history.history['loss'][-1]),
+        'final_val_loss': float(history.history['val_loss'][-1]),
+        'best_val_loss': float(min(history.history['val_loss'])),
+        'data_path': str(data_path)
+    }
+    
+    with open(dirs['models'] / 'training_config.txt', 'w') as f:
+        for key, value in config.items():
+            f.write(f"{key}: {value}\n")
+    
+    print(f"Training completed! All outputs saved to {dirs['models'].parent}")
+    
+    return history, model, dirs
 
-# Build the model with the best hyperparameters
-model = tuner.hypermodel.build(best_hps)
-
-# Train the best model with early stopping
-history = model.fit(
-    x_train, x_train,
-    epochs=50,
-    batch_size=32,
-    validation_data=(x_val, x_val),
-    callbacks=[
-        tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
-    ]
-)
-
-# Evaluate the model on validation data
-val_loss, val_mae = model.evaluate(x_val, x_val)
-print(f'Validation MAE: {val_mae}')
-
-# Make predictions
-decoded_signals = model.predict(x_val)
-
-# Display original and reconstructed signals
-n = 5  # Number of signals to display
-selected_signals = x_val[:n]
-
-plt.figure(figsize=(12, 6))
-for i in range(n):
-    # Original signals
-    plt.subplot(2, n, i + 1)
-    plt.imshow(selected_signals[i].reshape(44, 44), cmap='gray')
-    plt.title('Original')
-    plt.axis('off')
-
-    # Reconstructed signals
-    plt.subplot(2, n, i + n + 1)
-    plt.imshow(decoded_signals[i].reshape(44, 44), cmap='gray')
-    plt.title('Reconstructed')
-    plt.axis('off')
-
-plt.tight_layout()
-plt.show()
+if __name__ == '__main__':
+    # Enable mixed precision training
+    tf.keras.mixed_precision.set_global_policy('mixed_float16')
+    
+    # Set memory growth for GPUs
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+    
+    history, model, dirs = main()
