@@ -5,9 +5,11 @@ from tensorflow.keras.losses import MeanAbsoluteError
 from scipy.stats import lognorm
 import scipy.stats as stats
 import matplotlib.pyplot as plt
-from sklearn.metrics import roc_curve, auc
+from sklearn.metrics import roc_curve, auc, confusion_matrix, classification_report
 import os
 import pandas as pd
+from sklearn.cluster import KMeans
+import seaborn as sns
 
 def load_dae_model(model_path):
     """
@@ -347,6 +349,46 @@ def plot_lognormal_fits(samples, parameters, title_prefix):
     plt.tight_layout()
     plt.show()
 
+# Alternative version with sequential scatter plot
+def plot_mae_distribution_scatter_alltogether(healthy_maes, anomalous_maes_5pc, anomalous_maes_10pc, baseline_maes, figsize=(12, 8)):
+    """
+    Create sequential scatter plots of all MAE values.
+    
+    Parameters:
+        healthy_maes (np.array): MAEs from healthy data
+        anomalous_maes_5pc (np.array): MAEs from 5% damage data
+        anomalous_maes_10pc (np.array): MAEs from 10% damage data
+        baseline_maes (np.array): MAEs from baseline data
+        figsize (tuple): Figure size (width, height)
+    """
+    plt.figure(figsize=figsize)
+    
+    datasets = {
+        'Healthy': (healthy_maes, 'green'),
+        'Anomalous 5%': (anomalous_maes_5pc, 'red'),
+        'Anomalous 10%': (anomalous_maes_10pc, 'red'),
+        'Baseline': (baseline_maes, 'red')
+    }
+    
+    # Create scatter plots
+    for label, (data, color) in datasets.items():
+        indices = np.arange(len(data))
+        plt.scatter(indices, data, 
+                   alpha=0.5, 
+                   c=color, 
+                   label=f'{label} MAEs',
+                   s=30)
+    
+    plt.title('Sequential MAE Values')
+    plt.xlabel('Sample Index')
+    plt.ylabel('Mean Absolute Error (MAE)')
+    plt.grid(True, alpha=0.3)
+    plt.yscale('log')
+    
+    plt.tight_layout()
+    plt.show()
+
+
 def compare_lognormal_pairs(healthy_params, damaged_params):
     """
     Plots 10 graphs comparing healthy and damaged log-normal distributions, displayed in a 5x2 grid,
@@ -545,8 +587,108 @@ def create_dataset_from_damage_indices(healthy_di, damage_5pc_di, damaged_10pc_d
 
     return dataset
 
-def main():
+def plot_mae_distribution_scatter(baseline_maes, healthy_maes, anomalous_maes_5pc, anomalous_maes_10pc, figsize=(12, 8)):
+    """
+    Create a vertical scatter plot showing the distribution of all MAE values.
     
+    Parameters:
+        healthy_maes (np.array): MAEs from healthy data
+        anomalous_maes_5pc (np.array): MAEs from 5% damage data
+        anomalous_maes_10pc (np.array): MAEs from 10% damage data
+        baseline_maes (np.array): MAEs from baseline data
+        figsize (tuple): Figure size (width, height)
+    """
+    plt.figure(figsize=figsize)
+    
+    # Define datasets with their properties
+    datasets = {
+        'Baseline': (baseline_maes, 'green', 1),
+        'Healthy': (healthy_maes, 'blue', 2),
+        'Anomalous 5%': (anomalous_maes_5pc, 'orange', 3),
+        'Anomalous 10%': (anomalous_maes_10pc, 'red', 4)
+    }
+    
+    # Create scatter plots for each dataset
+    for label, (data, color, x_pos) in datasets.items():
+        # Create jittered x positions
+        x_jittered = np.random.normal(x_pos, 0.04, size=len(data))
+        
+        plt.scatter(x_jittered, data, 
+                   alpha=0.5, 
+                   c=color, 
+                   label=f'{label} MAEs',
+                   s=30)
+    
+    plt.title('Distribution of MAE Values')
+    plt.ylabel('Mean Absolute Error (MAE)')
+    plt.xlabel('Datasets')
+    
+    # Set x-ticks at the center of each distribution
+    plt.xticks([1, 2, 3, 4], ['Baseline', 'Healthy', 'Anomalous 5%', 'Anomalous 10%'])
+    
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.yscale('log')
+    
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_all_mae_distributions(healthy_maes, anomalous_maes_5pc, anomalous_maes_10pc, baseline_maes, dist=stats.lognorm):
+    """
+    Plot histograms and fitted distributions for all MAE datasets.
+    
+    Parameters:
+        healthy_maes (np.array): MAEs from healthy data
+        anomalous_maes_5pc (np.array): MAEs from 5% damage data
+        anomalous_maes_10pc (np.array): MAEs from 10% damage data
+        baseline_maes (np.array): MAEs from baseline data
+        dist (scipy.stats distribution): Distribution to fit (default: lognorm)
+    """
+    plt.figure(figsize=(12, 8))
+    
+    # Define data sets and their properties
+    datasets = {
+        'Healthy': (healthy_maes, 'blue', 0.3),
+        #'Anomalous 5%': (anomalous_maes_5pc, 'orange', 0.3),
+        #'Anomalous 10%': (anomalous_maes_10pc, 'red', 0.3),
+        'Baseline': (baseline_maes, 'green', 0.3)
+    }
+    
+    # Plot histograms and fitted distributions for each dataset
+    for label, (data, color, alpha) in datasets.items():
+        # Fit distribution
+        params = dist.fit(data)
+        
+        # Plot histogram
+        plt.hist(data, bins='auto', density=True, alpha=alpha, 
+                color=color, label=f'{label} MAEs')
+        
+        # Plot fitted distribution
+        x = np.linspace(min(data), max(data), 100)
+        plt.plot(x, dist.pdf(x, *params), '-', 
+                color=color, lw=2, label=f'Fitted {label}')
+    
+    plt.title('Distribution Comparison of MAEs')
+    plt.xlabel('Mean Absolute Error (MAE)')
+    plt.ylabel('Density')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Add log scale for better visualization if needed
+    plt.yscale('log')
+    
+    # Adjust layout to prevent label clipping
+    plt.tight_layout()
+    plt.show()
+    
+    # Print distribution parameters
+    print("\nDistribution Parameters:")
+    for label, (data, _, _) in datasets.items():
+        params = dist.fit(data)
+        print(f"{label}: {params}")
+
+def main():
     # Define paths
     model_path = r'/Users/home/Documents/github/convolutional_autoencoder/models/autoencoder_best_model.keras'
     healthy_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_baseline_val.npy'
@@ -557,7 +699,7 @@ def main():
     # Load the trained DAE model
     autoencoder_model = load_dae_model(model_path)
 
-    # Load baseline, healthy and anomalous signals
+    # Load baseline, healthy, and anomalous signals
     baseline_data = load_val_signals(baseline_path)
     healthy_data = load_val_signals(healthy_path)
     anomalous_data_5pc = load_val_signals(anomalous_path_5pc)
@@ -568,6 +710,8 @@ def main():
     anomalous_maes_5pc = calculate_maes(autoencoder_model, anomalous_data_5pc)
     anomalous_maes_10pc = calculate_maes(autoencoder_model, anomalous_data_10pc)
     baseline_maes = calculate_maes(autoencoder_model, baseline_data)
+    
+    plot_mae_distribution_scatter_alltogether(baseline_maes, healthy_maes, anomalous_maes_5pc, anomalous_maes_10pc)
 
     # Fit baseline distribution
     baseline_params = fit_mae_distribution(baseline_maes, plot=False)
@@ -580,64 +724,80 @@ def main():
     # Sample from each subset
     healthy_samples = [tf.gather(subset, tf.random.shuffle(tf.range(tf.shape(subset)[0]))[:10]) 
                       for subset in healthy_subsets]
-    
-    damaged_samples = [tf.gather(subset, tf.random.shuffle(tf.range(tf.shape(subset)[0]))[:10]) 
+
+    damaged_samples_5pc = [tf.gather(subset, tf.random.shuffle(tf.range(tf.shape(subset)[0]))[:10]) 
                       for subset in damaged_subsets_5pc]
-    
-    damaged_10pc_samples = [tf.gather(subset, tf.random.shuffle(tf.range(tf.shape(subset)[0]))[:10]) 
+
+    damaged_samples_10pc = [tf.gather(subset, tf.random.shuffle(tf.range(tf.shape(subset)[0]))[:10]) 
                           for subset in damaged_10pc_subsets]
 
     # Convert to numpy arrays
     healthy_samples_np = [tensor.numpy() for tensor in healthy_samples]
-    damaged_samples_np = [tensor.numpy() for tensor in damaged_samples]
-    damaged_10pc_samples_np = [tensor.numpy() for tensor in damaged_10pc_samples]
+    damaged_samples_np_5pc = [tensor.numpy() for tensor in damaged_samples_5pc]
+    damaged_samples_np_10pc = [tensor.numpy() for tensor in damaged_samples_10pc]
 
     # Calculate damage indices
     healthy_di = calculate_sample_damage_indexes(healthy_samples_np, baseline_params)
-    damaged_di_5pc = calculate_sample_damage_indexes(damaged_samples_np, baseline_params)
-    damaged_10pc_di = calculate_sample_damage_indexes(damaged_10pc_samples_np, baseline_params)
+    damaged_di_5pc = calculate_sample_damage_indexes(damaged_samples_np_5pc, baseline_params)
+    damaged_di_10pc = calculate_sample_damage_indexes(damaged_samples_np_10pc, baseline_params)
 
     # Plot damage indices for all three datasets
-    fig, ax = plot_damage_indices_three_sets(healthy_di, damaged_di_5pc, damaged_10pc_di,
+    fig, ax = plot_damage_indices_three_sets(healthy_di, damaged_di_5pc, damaged_di_10pc,
                                              labels=['Healthy', '5% Damage', '10% Damage'])
     plt.show()
 
-    # Create labeled dataset from damage indices
-    dataset = create_dataset_from_damage_indices(healthy_di, damaged_di_5pc, damaged_10pc_di)
+    # Combine all damage indices into a single dataset
+    damage_indices = np.concatenate([healthy_di, damaged_di_5pc, damaged_di_10pc])
+    conditions = np.concatenate([
+        np.full(len(healthy_di), 'Healthy'),
+        np.full(len(damaged_di_5pc), '5% Damage'),
+        np.full(len(damaged_di_10pc), '10% Damage')
+    ])
+
+    # Create a DataFrame
+    dataset = pd.DataFrame({
+        'Damage_Index': damage_indices,
+        'Condition': conditions
+    })
 
     print(dataset.tail())
 
-    # Prepare data for SVM
-    X = dataset[['Damage_Index']].values
-    y = dataset['Condition'].values
+    # Prepare data for clustering
+    X = dataset[['Damage_Index']].values  # Using only Damage_Index as the feature
 
-    # Split data into training and testing sets
-    from sklearn.model_selection import train_test_split
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, stratify=y, random_state=42
-    )
+    # Apply KMeans clustering
+    kmeans = KMeans(n_clusters=3, random_state=42)
+    kmeans.fit(X)
+    cluster_labels = kmeans.labels_
 
-    # Feature scaling
-    from sklearn.preprocessing import StandardScaler
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
+    # Add cluster labels to the dataset
+    dataset['Cluster'] = cluster_labels
 
-    # Initialize and train the SVM classifier
-    from sklearn.svm import SVC
-    import seaborn as sns
-    svm_classifier = SVC(kernel='rbf', random_state=42)
-    svm_classifier.fit(X_train_scaled, y_train)
+    # Map clusters to actual damage conditions based on mean Damage_Index in each cluster
+    cluster_mapping = {}
+    for cluster in np.unique(cluster_labels):
+        # Get the mean Damage_Index for the cluster
+        mean_di = dataset[dataset['Cluster'] == cluster]['Damage_Index'].mean()
+        cluster_mapping[cluster] = mean_di
 
-    # Make predictions on the test set
-    y_pred = svm_classifier.predict(X_test_scaled)
+    # Sort clusters by mean Damage_Index
+    sorted_clusters = sorted(cluster_mapping.items(), key=lambda x: x[1])
 
-    # Evaluate the classifier
-    from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc
+    # Assign cluster labels to conditions
+    cluster_to_condition = {}
+    conditions_order = ['Healthy', '5% Damage', '10% Damage']
+    for idx, (cluster, _) in enumerate(sorted_clusters):
+        cluster_to_condition[cluster] = conditions_order[idx]
+
+    # Map the clusters to conditions
+    dataset['Predicted_Condition'] = dataset['Cluster'].map(cluster_to_condition)
+
+    # Evaluate the clustering performance
     print("Classification Report:")
-    print(classification_report(y_test, y_pred, target_names=['Healthy', '5% Damage', '10% Damage']))
+    print(classification_report(dataset['Condition'], dataset['Predicted_Condition'], target_names=['Healthy', '5% Damage', '10% Damage']))
 
-    cm = confusion_matrix(y_test, y_pred)
+    # Confusion Matrix
+    cm = confusion_matrix(dataset['Condition'], dataset['Predicted_Condition'], labels=['Healthy', '5% Damage', '10% Damage'])
     cm_df = pd.DataFrame(cm, index=['Healthy', '5% Damage', '10% Damage'],
                          columns=['Predicted Healthy', 'Predicted 5% Damage', 'Predicted 10% Damage'])
 
@@ -649,7 +809,16 @@ def main():
     plt.xlabel('Predicted Condition')
     plt.show()
 
-    # Now, plot ROC curves for Healthy vs 5% Damage and Healthy vs 10% Damage
+    # Visualize the clusters
+    plt.figure(figsize=(8, 6))
+    sns.scatterplot(x='Damage_Index', y=np.zeros_like(dataset['Damage_Index']), hue='Predicted_Condition', data=dataset, palette='viridis', s=100)
+    plt.title('KMeans Clustering of Damage Indices')
+    plt.xlabel('Damage Index')
+    plt.yticks([])
+    plt.show()
+
+    di_h_vs_10pc = np.concatenate([healthy_di, damaged_di_10pc])
+    labels_h_vs_10pc = np.concatenate([np.zeros(len(healthy_di)), np.ones(len(damaged_di_5pc))])
 
     # Healthy vs 5% Damage
     # Prepare data
@@ -674,8 +843,8 @@ def main():
 
     # Healthy vs 10% Damage
     # Prepare data
-    di_h_vs_10pc = np.concatenate([healthy_di, damaged_10pc_di])
-    labels_h_vs_10pc = np.concatenate([np.zeros(len(healthy_di)), np.ones(len(damaged_10pc_di))])
+    di_h_vs_10pc = np.concatenate([healthy_di, damaged_di_10pc])
+    labels_h_vs_10pc = np.concatenate([np.zeros(len(healthy_di)), np.ones(len(damaged_di_10pc))])
 
     # Compute ROC curve and AUC
     fpr_h_vs_10pc, tpr_h_vs_10pc, _ = roc_curve(labels_h_vs_10pc, di_h_vs_10pc)
@@ -692,6 +861,7 @@ def main():
     plt.legend(loc='lower right')
     plt.grid(True)
     plt.show()
+
 
 if __name__ == '__main__':
     main()
