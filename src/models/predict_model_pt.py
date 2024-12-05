@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve, auc
 import os
 import pandas as pd
+import seaborn as sns
 
 def load_dae_model(model_path):
     """
@@ -601,51 +602,51 @@ def main():
     # Plot the confusion matrix
     plt.figure(figsize=(6, 4))
     sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues')
-    plt.title('Confusion Matrix')
-    plt.ylabel('Actual Condition')
-    plt.xlabel('Predicted Condition')
+    plt.title('Matriz de Confusão')
+    plt.ylabel('Condição Real')
+    plt.xlabel('Condição Prevista')
     plt.show()
 
-    # Now, plot ROC curves for Healthy vs 5% Damage and Healthy vs 10% Damage
+    # Agora, plotar as curvas ROC para Saudável vs 5% de Danos e Saudável vs 10% de Danos
 
-    # Healthy vs 5% Damage
-    # Prepare data
+    # Saudável vs 5% de Danos
+    # Preparar os dados
     di_h_vs_5pc = np.concatenate([healthy_di, damaged_di_5pc])
     labels_h_vs_5pc = np.concatenate([np.zeros(len(healthy_di)), np.ones(len(damaged_di_5pc))])
 
-    # Compute ROC curve and AUC
+    # Calcular a curva ROC e AUC
     fpr_h_vs_5pc, tpr_h_vs_5pc, _ = roc_curve(labels_h_vs_5pc, di_h_vs_5pc)
     auc_h_vs_5pc = auc(fpr_h_vs_5pc, tpr_h_vs_5pc)
 
-    # Plot ROC curve
+    # Plotar a curva ROC
     plt.figure()
     plt.plot(fpr_h_vs_5pc, tpr_h_vs_5pc, color='darkorange',
-             lw=2, label='ROC curve (area = %0.2f)' % auc_h_vs_5pc)
+            lw=2, label='Curva ROC (AUC = %0.2f)' % auc_h_vs_5pc)
     plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-    plt.title('ROC Curve: Healthy vs 5% Damage')
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
+    plt.title('Curva ROC: Saudável vs 5% de Danos')
+    plt.xlabel('Taxa de Falsos Positivos')
+    plt.ylabel('Taxa de Verdadeiros Positivos')
     plt.legend(loc='lower right')
     plt.grid(True)
     plt.show()
 
-    # Healthy vs 10% Damage
-    # Prepare data
+    # Saudável vs 10% de Danos
+    # Preparar os dados
     di_h_vs_10pc = np.concatenate([healthy_di, damaged_10pc_di])
     labels_h_vs_10pc = np.concatenate([np.zeros(len(healthy_di)), np.ones(len(damaged_10pc_di))])
 
-    # Compute ROC curve and AUC
+    # Calcular a curva ROC e AUC
     fpr_h_vs_10pc, tpr_h_vs_10pc, _ = roc_curve(labels_h_vs_10pc, di_h_vs_10pc)
     auc_h_vs_10pc = auc(fpr_h_vs_10pc, tpr_h_vs_10pc)
 
-    # Plot ROC curve
+    # Plotar a curva ROC
     plt.figure()
     plt.plot(fpr_h_vs_10pc, tpr_h_vs_10pc, color='green',
-             lw=2, label='ROC curve (area = %0.2f)' % auc_h_vs_10pc)
+            lw=2, label='Curva ROC (AUC = %0.2f)' % auc_h_vs_10pc)
     plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-    plt.title('ROC Curve: Healthy vs 10% Damage')
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
+    plt.title('Curva ROC: Saudável vs 10% de Danos')
+    plt.xlabel('Taxa de Falsos Positivos')
+    plt.ylabel('Taxa de Verdadeiros Positivos')
     plt.legend(loc='lower right')
     plt.grid(True)
     plt.show()
