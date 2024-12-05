@@ -421,7 +421,7 @@ def plot_roc_curve(healthy_di, damaged_di):
     plt.grid(alpha=0.5)
     plt.show()
 
-def plot_damage_indices_three_sets(healthy_di, damaged_di, damaged_10pc_di, labels=['Healthy', 'Damaged', '10% Damaged']):
+def plot_damage_indices_three_sets(healthy_di, damaged_di, damaged_10pc_di, labels=['Saudável', 'Dano de 5%', 'Dano de 15%']):
     fig, ax = plt.subplots(figsize=(10, 6))
     
     # Create box plots for all three datasets
@@ -435,7 +435,7 @@ def plot_damage_indices_three_sets(healthy_di, damaged_di, damaged_10pc_di, labe
         patch.set_facecolor(color)
     
     ax.set_ylabel('Damage Index')
-    ax.set_title('Damage Index Comparison')
+    ax.set_title('Comparativo do índice de dano')
     ax.grid(True)
     
     return fig, ax
@@ -620,11 +620,11 @@ def main():
     # Plot ROC curve
     plt.figure()
     plt.plot(fpr_h_vs_5pc, tpr_h_vs_5pc, color='darkorange',
-             lw=2, label='ROC curve (area = %0.2f)' % auc_h_vs_5pc)
+             lw=2, label='Curva ROC (area = %0.2f)' % auc_h_vs_5pc)
     plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-    plt.title('ROC Curve: Healthy vs 5% Damage')
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
+    plt.title('Curva ROC: caso saudável vs dano de 5%')
+    plt.xlabel('Taxa de falsos negativos')
+    plt.ylabel('Taxa de verdadeiros positivos')
     plt.legend(loc='lower right')
     plt.grid(True)
     plt.show()
@@ -641,11 +641,11 @@ def main():
     # Plot ROC curve
     plt.figure()
     plt.plot(fpr_h_vs_10pc, tpr_h_vs_10pc, color='green',
-             lw=2, label='ROC curve (area = %0.2f)' % auc_h_vs_10pc)
+            lw=2, label='Curva ROC (area = %0.2f)' % auc_h_vs_5pc)
     plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-    plt.title('ROC Curve: Healthy vs 10% Damage')
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
+    plt.title('Curva ROC: caso saudável vs dano de 10%')
+    plt.xlabel('Taxa de falsos negativos')
+    plt.ylabel('Taxa de verdadeiros positivos')
     plt.legend(loc='lower right')
     plt.grid(True)
     plt.show()
