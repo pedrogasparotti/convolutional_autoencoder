@@ -19,108 +19,58 @@ from models.autoencoder import (
     plot_model_architecture
 )
 
-# Define data path
-data_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_baseline_train.npy'
+# Define paths for DOFs
+BASE_PATH = '/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy'
+DOF_PATHS = {
+    'DOF_6': f'{BASE_PATH}/acc_vehicle_data_dof_6_baseline_train.npy',
+    'DOF_5': f'{BASE_PATH}/acc_vehicle_data_dof_5_baseline_train.npy',
+    'DOF_4': f'{BASE_PATH}/acc_vehicle_data_dof_4_baseline_train.npy',
+    'DOF_1': f'{BASE_PATH}/acc_vehicle_data_dof_1_baseline_train.npy'
+}
 
 def load_data(data_path):
-    """
-    Loads data from a .npy file
-
-    Parameters:
-    - data_path: str
-        Path to the .npy file containing the data.
-
-    Returns:
-    - numpy.ndarray
-         data.
-    """
-    # Load data
-    data = np.load(data_path)
-
-    return data
+    """Loads data from a .npy file."""
+    if not os.path.exists(data_path):
+        raise FileNotFoundError(f"Data not found at {data_path}")
+    return np.load(data_path)
 
 def scheduler(epoch, lr):
-    """
-    Learning rate scheduler function. Reduces learning rate by 10% every 10 epochs.
-    """
+    """Learning rate scheduler function."""
     if epoch < 10:
         return lr
     else:
         return lr * 0.9
 
-def alternative_scheduler(epoch, lr):
-    """
-    Learning rate scheduler function.
-    Less aggressive reduction: reduces learning rate by 5% every 20 epochs after epoch 20.
-    Maintains a minimum learning rate threshold.
-    """
-    initial_lr = 0.001  # Initial learning rate
-    min_lr = 1e-5      # Minimum learning rate threshold
+def train_and_evaluate_dof(dof, data_path):
+    """Train and evaluate the autoencoder model for a specific DOF."""
+    print(f"\nTraining for {dof}...")
     
-    if epoch < 20:
-        return initial_lr
-    else:
-        # Reduce by 5% every 20 epochs
-        decay = 0.95 ** ((epoch - 20) // 20)
-        new_lr = initial_lr * decay
-        return max(new_lr, min_lr) 
-
-def plot_reconstruction(original, reconstructed, num_signals=5):
-    """
-    Plots the original vs. reconstructed signals for comparison.
-    """
-    plt.figure(figsize=(15, 8))
-    for i in range(num_signals):
-        original_signal = original[i].flatten()
-        reconstructed_signal = reconstructed[i].flatten()
-        
-        plt.subplot(num_signals, 2, 2 * i + 1)
-        plt.plot(original_signal, label="Original")
-        plt.title(f"Original Signal {i+1}")
-        plt.xlabel("Element Index")
-        plt.ylabel("Amplitude")
-
-        plt.subplot(num_signals, 2, 2 * i + 2)
-        plt.plot(reconstructed_signal, label="Reconstructed")
-        plt.title(f"Reconstructed Signal {i+1}")
-        plt.xlabel("Element Index")
-        plt.ylabel("Amplitude")
-        
-    plt.tight_layout()
-    plt.show()
-
-def main():
     # Load and preprocess data
     data = load_data(data_path)
     if len(data.shape) == 3:
         data = data[..., np.newaxis]
-    
-    # Split data into training and validation sets
     x_train, x_val = train_test_split(data, test_size=0.2, random_state=42)
-
+    
     # Build and compile the model
     input_shape = (44, 44, 1)
     autoencoder = build_autoencoder_single_model(input_shape=input_shape)
-    autoencoder = compile_autoencoder(autoencoder,
-                                      optimizer = tf.keras.optimizers.Adam(learning_rate=0.001,clipnorm=1.0),
-                                      loss='mae')
-
-    # Plot the model architecture
-    architecture_file = r'/Users/home/Documents/github/convolutional_autoencoder/models/autoencoder_architecture.png'
-    plot_model_architecture(autoencoder, architecture_file=architecture_file)
-
+    autoencoder = compile_autoencoder(
+        autoencoder,
+        optimizer=tf.keras.optimizers.Adam(learning_rate=0.001, clipnorm=1.0),
+        loss='mae'
+    )
+    
     # Define callbacks
-    model_save_path = r'/Users/home/Documents/github/convolutional_autoencoder/models/autoencoder_best_model.keras'
+    model_save_path = f'/Users/home/Documents/github/convolutional_autoencoder/models/autoencoder_best_model_{dof}.keras'
     callbacks = get_callbacks(model_path=model_save_path, patience=10)
     lr_scheduler = LearningRateScheduler(scheduler)
     callbacks.append(lr_scheduler)
 
-    # Add TensorBoard callback
-    log_dir = "logs/autoencoder"
+    log_dir = f"logs/autoencoder_{dof}"
     tensorboard_callback = TensorBoard(log_dir=log_dir, histogram_freq=1)
     callbacks.append(tensorboard_callback)
 
-    # Train the model with the callbacks and learning rate scheduler
+    # Train the model
     history = autoencoder.fit(
         x_train, x_train,
         batch_size=32,
@@ -128,15 +78,45 @@ def main():
         validation_data=(x_val, x_val),
         callbacks=callbacks
     )
-
-    # Save the training history
-    history_path = r'/Users/home/Documents/github/convolutional_autoencoder/models/training_history.npy'
+    
+    # Save training history
+    history_path = f'/Users/home/Documents/github/convolutional_autoencoder/models/training_history_{dof}.npy'
     np.save(history_path, history.history)
-    print(f"Training history saved to {history_path}")
-
-    # Visualize reconstruction results
+    print(f"Training history for {dof} saved to {history_path}")
+    
+    # Visualize reconstruction
     reconstructed_signals = autoencoder.predict(x_val[:5])
     plot_reconstruction(x_val, reconstructed_signals, num_signals=5)
+    
+    return history.history
+
+def plot_loss_comparison(histories, dof_labels):
+    """Plot training and validation loss for all DOFs."""
+    plt.figure(figsize=(12, 8))
+    for dof, history in zip(dof_labels, histories):
+        plt.plot(history['loss'], label=f'{dof} - Training Loss')
+        plt.plot(history['val_loss'], linestyle='--', label=f'{dof} - Validation Loss')
+    
+    plt.title('Training and Validation Loss Comparison Across DOFs')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss (MAE)')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('training_loss_comparison.png')
+    plt.show()
+
+def main():
+    histories = []
+    dof_labels = []
+
+    for dof, data_path in DOF_PATHS.items():
+        history = train_and_evaluate_dof(dof, data_path)
+        histories.append(history)
+        dof_labels.append(dof)
+
+    # Plot loss comparison
+    plot_loss_comparison(histories, dof_labels)
 
 if __name__ == '__main__':
     main()
