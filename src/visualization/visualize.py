@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Path to the normalized data file
-data_path = '/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_4_DAMAGE_FIVE.npy'
+data_path = '/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_train.npy'
 
 # Load the data
 data = np.load(data_path)
