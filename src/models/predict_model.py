@@ -193,6 +193,7 @@ def plot_distribution_fit(data, dist, params, dist_name, sample_name):
     """
     Plot histogram of MAEs with fitted distribution.
     """
+
     plt.figure(figsize=(10, 6))
     
     # Plot histogram of actual data
@@ -209,6 +210,70 @@ def plot_distribution_fit(data, dist, params, dist_name, sample_name):
     plt.ylabel('Density')
     plt.legend()
     plt.grid(True, alpha=0.3)
+    plt.show()
+
+def plot_all_distributions(healthy_data, anomalous_data_5pc, anomalous_data_10pc, autoencoder_model):
+    """
+    Plot MAE distributions for all datasets overlaid
+    """
+    from scipy import stats
+    
+    # Function to calculate MAEs for a dataset
+    def calculate_maes(data):
+        if data.ndim == 3:
+            data = data[..., np.newaxis]
+        reconstructed = autoencoder_model(data)
+        if tf.is_tensor(reconstructed):
+            reconstructed = reconstructed.numpy()
+        if tf.is_tensor(data):
+            data = data.numpy()
+        return np.mean(np.abs(data - reconstructed), axis=(1,2,3))
+
+    # Calculate MAEs for each dataset
+    healthy_maes = calculate_maes(healthy_data)
+    anomalous_maes_5pc = calculate_maes(anomalous_data_5pc)
+    anomalous_maes_10pc = calculate_maes(anomalous_data_10pc)
+
+    # Fit normal distribution to each dataset
+    healthy_params = stats.norm.fit(healthy_maes)
+    anomalous_params_5pc = stats.norm.fit(anomalous_maes_5pc)
+    anomalous_params_10pc = stats.norm.fit(anomalous_maes_10pc)
+
+    # Create single plot with all distributions
+    plt.figure(figsize=(12, 8))
+    
+    # Plot histograms
+    plt.hist(healthy_maes, bins='auto', density=True, alpha=0.3, color='blue',
+             label='Estrutura Íntegra')
+    plt.hist(anomalous_maes_5pc, bins='auto', density=True, alpha=0.3, color='orange',
+             label='Dano de 5%')
+    plt.hist(anomalous_maes_10pc, bins='auto', density=True, alpha=0.3, color='red',
+             label='Dano de 10%')
+
+    # Plot fitted distributions
+    x = np.linspace(min(min(healthy_maes), min(anomalous_maes_5pc), min(anomalous_maes_10pc)),
+                    max(max(healthy_maes), max(anomalous_maes_5pc), max(anomalous_maes_10pc)),
+                    100)
+    
+    plt.plot(x, stats.norm.pdf(x, *healthy_params), 'b-', lw=2,
+             label='Ajuste Normal - Íntegra')
+    plt.plot(x, stats.norm.pdf(x, *anomalous_params_5pc), 'orange', lw=2,
+             label='Ajuste Normal - Dano 5%')
+    plt.plot(x, stats.norm.pdf(x, *anomalous_params_10pc), 'r-', lw=2,
+             label='Ajuste Normal - Dano 10%')
+
+    plt.title('Distribuição dos Erros de Reconstrução', fontsize=24)
+    plt.xlabel('Erro Médio Absoluto', fontsize=20)
+    plt.ylabel('Densidade', fontsize=20)
+    plt.legend(fontsize=16)
+    plt.grid(True, alpha=0.3)
+    
+    # Adjust tick font size
+    plt.xticks(fontsize=14)
+    plt.yticks(fontsize=14)
+    
+    plt.tight_layout()
+    plt.savefig('distribuicao_erros.png', bbox_inches='tight', dpi=300)
     plt.show()
 
 def kl_divergence(mu1, sigma1, mu2, sigma2):
@@ -502,12 +567,139 @@ def create_dataset_from_damage_indices(healthy_di, damage_5pc_di, damaged_10pc_d
 
     return dataset
 
+def plot_damage_index_distributions(healthy_di, damaged_di_5pc, damaged_10pc_di):
+    """
+    Plot damage index distributions for all datasets overlaid with lognormal fits
+    """
+    from scipy import stats
+    
+    # Fit lognormal distribution to each dataset
+    healthy_params = stats.lognorm.fit(healthy_di)
+    damaged_params_5pc = stats.lognorm.fit(damaged_di_5pc)
+    damaged_params_10pc = stats.lognorm.fit(damaged_10pc_di)
+
+    # Create single plot with all distributions
+    plt.figure(figsize=(12, 8))
+    
+    # Plot histograms
+    plt.hist(healthy_di, bins='auto', density=True, alpha=0.3, color='blue',
+             label='Estrutura Íntegra')
+    plt.hist(damaged_di_5pc, bins='auto', density=True, alpha=0.3, color='orange',
+             label='Dano de 5%')
+    plt.hist(damaged_10pc_di, bins='auto', density=True, alpha=0.3, color='red',
+             label='Dano de 10%')
+
+    # Plot fitted distributions
+    x = np.linspace(min(min(healthy_di), min(damaged_di_5pc), min(damaged_10pc_di)),
+                    max(max(healthy_di), max(damaged_di_5pc), max(damaged_10pc_di)),
+                    100)
+    
+    plt.plot(x, stats.lognorm.pdf(x, *healthy_params), 'b-', lw=2,
+             label='Ajuste Lognormal - Íntegra')
+    plt.plot(x, stats.lognorm.pdf(x, *damaged_params_5pc), 'orange', lw=2,
+             label='Ajuste Lognormal - Dano 5%')
+    plt.plot(x, stats.lognorm.pdf(x, *damaged_params_10pc), 'r-', lw=2,
+             label='Ajuste Lognormal - Dano 10%')
+
+    plt.title('Distribuição dos Índices de Dano', fontsize=24)
+    plt.xlabel('Índice de Dano', fontsize=20)
+    plt.ylabel('Densidade', fontsize=20)
+    plt.legend(fontsize=16)
+    plt.grid(True, alpha=0.3)
+    
+    # Adjust tick font size
+    plt.xticks(fontsize=14)
+    plt.yticks(fontsize=14)
+    
+    plt.tight_layout()
+    plt.savefig('distribuicao_indices_dano.png', bbox_inches='tight', dpi=300)
+    plt.show()
+    
+    # Print the parameters of the fitted distributions
+    print("\nParâmetros das distribuições lognormais ajustadas:")
+    print(f"Estrutura Íntegra: shape={healthy_params[0]:.4f}, loc={healthy_params[1]:.4f}, scale={healthy_params[2]:.4f}")
+    print(f"Dano 5%: shape={damaged_params_5pc[0]:.4f}, loc={damaged_params_5pc[1]:.4f}, scale={damaged_params_5pc[2]:.4f}")
+    print(f"Dano 10%: shape={damaged_params_10pc[0]:.4f}, loc={damaged_params_10pc[1]:.4f}, scale={damaged_params_10pc[2]:.4f}")
+
+def plot_reconstruction(autoencoder_model, signal_data, num_samples=5):
+    """
+    Plot original and reconstructed signals for multiple samples.
+    
+    Parameters:
+    -----------
+    autoencoder_model : keras.Model
+        Trained autoencoder model
+    signal_data : numpy.ndarray
+        Input signal data
+    num_samples : int, optional
+        Number of samples to plot (default=5)
+    """
+    # Ensure input data has the correct shape
+    if signal_data.ndim == 3:
+        signal_data = signal_data[..., np.newaxis]
+        
+    # Get reconstruction
+    reconstructed_data = autoencoder_model(signal_data)
+    
+    # Convert to numpy if needed
+    if tf.is_tensor(signal_data):
+        signal_data = signal_data.numpy()
+    if tf.is_tensor(reconstructed_data):
+        reconstructed_data = reconstructed_data.numpy()
+    
+    # Plot for each sample
+    for sample_idx in range(num_samples):
+        # Flatten the matrices
+        original_flat = signal_data[sample_idx].flatten()
+        reconstructed_flat = reconstructed_data[sample_idx].flatten()
+        
+        # Create two figures
+        # Figure 1: Separate plots
+        fig1, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 9))
+        
+        # Plot original signal
+        ax1.plot(original_flat, color='blue')
+        ax1.set_title(f'Sinal Original - Amostra {sample_idx+1}', fontsize=28)
+        ax1.set_ylabel('Amplitude', fontsize=24)
+        ax1.tick_params(axis='both', which='major', labelsize=20)
+        
+        # Plot reconstructed signal
+        ax2.plot(reconstructed_flat, color='red')
+        ax2.set_title(f'Sinal Reconstruído - Amostra {sample_idx+1}', fontsize=28)
+        ax2.set_xlabel('Amostras', fontsize=24)
+        ax2.set_ylabel('Amplitude', fontsize=24)
+        ax2.tick_params(axis='both', which='major', labelsize=20)
+        
+        plt.tight_layout()
+        plt.savefig(f'reconstrucao_sinal_separado_amostra_{sample_idx+1}.png', 
+                    bbox_inches='tight', dpi=300)
+        plt.show()
+        
+        # Figure 2: Overlaid comparison
+        plt.figure(figsize=(12, 6))
+        plt.plot(original_flat, color='blue', label='Original', linewidth=2)
+        plt.plot(reconstructed_flat, 'r:', label='Reconstruído', linewidth=2, 
+                 marker='.', markersize=3, markerfacecolor='red')
+        
+        plt.title(f'Comparação: Sinal Original vs. Reconstruído - Amostra {sample_idx+1}', 
+                 fontsize=28)
+        plt.xlabel('Amostras', fontsize=24)
+        plt.ylabel('Amplitude', fontsize=24)
+        plt.tick_params(axis='both', which='major', labelsize=20)
+        plt.legend(fontsize=20)
+        
+        plt.tight_layout()
+        plt.savefig(f'reconstrucao_sinal_sobreposto_amostra_{sample_idx+1}.png', 
+                    bbox_inches='tight', dpi=300)
+        plt.show()
+
+
 def main():
     
     # Define paths
     model_path = r'/Users/home/Documents/github/convolutional_autoencoder/models/autoencoder_best_model.keras'
-    healthy_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_baseline_val.npy'
-    baseline_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_baseline_train.npy'
+    healthy_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_healthy.npy'
+    baseline_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_train.npy'
     anomalous_path_5pc = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_5pc.npy'
     anomalous_path_10pc = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_10pc.npy'
 
@@ -553,6 +745,14 @@ def main():
     healthy_di = calculate_sample_damage_indexes(healthy_samples_np, baseline_params)
     damaged_di_5pc = calculate_sample_damage_indexes(damaged_samples_np, baseline_params)
     damaged_10pc_di = calculate_sample_damage_indexes(damaged_10pc_samples_np, baseline_params)
+
+
+    #plot_all_distributions(healthy_data, anomalous_data_5pc, anomalous_data_10pc, autoencoder_model)
+    #plot_reconstruction(autoencoder_model, healthy_data)  
+    #plot_reconstruction(autoencoder_model, anomalous_data_5pc) 
+    #plot_reconstruction(autoencoder_model, anomalous_data_10pc)
+    
+    plot_damage_index_distributions(healthy_di, damaged_di_5pc, damaged_10pc_di)
 
     # Plot damage indices for all three datasets
     fig, ax = plot_damage_indices_three_sets(healthy_di, damaged_di_5pc, damaged_10pc_di,
