@@ -105,7 +105,7 @@ def main():
     input_shape = (44, 44, 1)
     autoencoder = build_autoencoder_single_model(input_shape=input_shape)
     autoencoder = compile_autoencoder(autoencoder,
-                                    optimizer=tf.keras.optimizers.Adam(learning_rate=0.001, clipnorm=1.0),
+                                    optimizer=tf.keras.optimizers.Adam(learning_rate=0.0005, clipnorm=1.0),
                                     loss='mae')
 
     # Plot the model architecture
