@@ -1,0 +1,8 @@
+Best Hyperparameters:
+kernel_regularizer: 0.001
+learning_rate: 0.001
+optimizer: adam
+tuner/epochs: 2
+tuner/initial_epoch: 0
+tuner/bracket: 3
+tuner/round: 0

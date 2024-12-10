@@ -3,71 +3,86 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, models, Input
 import pandas as pd
+from tensorflow.keras import regularizers
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from datetime import datetime
-from tensorflow.keras import regularizers
+from tensorflow.keras.layers import LeakyReLU
+import os
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras import layers, models, Input
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from datetime import datetime
 
 class Conv1DAutoencoder:
-    def __init__(self, input_shape=(1936, 1), dropout_rate=0.25, reg_lambda=0.001):
+    def __init__(self, input_shape=(1936, 1)):
         self.input_shape = input_shape
-        self.dropout_rate = dropout_rate
-        self.reg_lambda = reg_lambda
         self.model = self._build_model()
         
     def _build_model(self):
-        inputs = Input(shape=self.input_shape, name='encoder_input')
+        # Encoder Input
+        inputs = Input(shape=(1936, 1), name='encoder_input')
         
         # Encoder
-        x = layers.Conv1D(32, kernel_size=3, strides=2, padding='same', 
-                          kernel_regularizer=regularizers.l2(self.reg_lambda))(inputs)
-        x = layers.BatchNormalization()(x)
-        x = layers.ReLU()(x)
-        x = layers.Dropout(self.dropout_rate)(x)
+        x = layers.Conv1D(32, 3, strides=2, padding='same', activation=None)(inputs)
+        x = LeakyReLU(alpha=0.3)(x)
         
-        x = layers.Conv1D(64, kernel_size=3, strides=2, padding='same', 
-                          kernel_regularizer=regularizers.l2(self.reg_lambda))(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.ReLU()(x)
-        x = layers.Dropout(self.dropout_rate)(x)
+        x = layers.Conv1D(64, 3, strides=2, padding='same', activation=None)(x)
+        x = LeakyReLU(alpha=0.3)(x)
         
-        x = layers.Conv1D(128, kernel_size=3, strides=2, padding='same', 
-                          kernel_regularizer=regularizers.l2(self.reg_lambda))(x)
-        x = layers.BatchNormalization()(x)
-        encoded = layers.ReLU()(x)
+        x = layers.Conv1D(128, 3, strides=2, padding='same', activation=None)(x)
+        x = LeakyReLU(alpha=0.3)(x)
         
         # Decoder
-        x = layers.Conv1DTranspose(128, kernel_size=3, strides=2, padding='same')(encoded)
-        x = layers.BatchNormalization()(x)
-        x = layers.ReLU()(x)
-        x = layers.Dropout(self.dropout_rate)(x)
+        x = layers.Conv1DTranspose(64, 3, strides=2, padding='same', activation=None)(x)
+        x = LeakyReLU(alpha=0.3)(x)
         
-        x = layers.Conv1DTranspose(64, kernel_size=3, strides=2, padding='same')(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.ReLU()(x)
-        x = layers.Dropout(self.dropout_rate)(x)
+        x = layers.Conv1DTranspose(32, 3, strides=2, padding='same', activation=None)(x)
+        x = LeakyReLU(alpha=0.3)(x)
         
-        x = layers.Conv1DTranspose(32, kernel_size=3, strides=2, padding='same')(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.ReLU()(x)
+        # Output layer
+        decoded = layers.Conv1DTranspose(1, 3, strides=2, padding='same', activation='linear')(x)
         
-        outputs = layers.Conv1D(1, kernel_size=3, padding='same', activation='linear')(x)
+        # Create model
+        autoencoder = models.Model(inputs, decoded, name='Simplified_Conv1D_Autoencoder')
         
-        return models.Model(inputs, outputs, name='Conv1D_Autoencoder')
+        return autoencoder 
     
-def load_and_preprocess_dof_data(file_path, sequence_length=1936):
-    """Load and preprocess data for a single DOF"""
+    def compile_model(self, learning_rate=0.0001):
+        optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+        self.model.compile(optimizer=optimizer, loss='mae')
+        return self.model
+     
+def load_and_preprocess_dof_data(file_path, sequence_length=1936, noise_factor=0):
+    """
+    Load and preprocess data for a single DOF, adding noise and normalizing to [0, 1].
+    
+    Parameters:
+    - file_path (str): Path to the CSV file containing the data.
+    - sequence_length (int): Length of the sequence to extract.
+    - noise_factor (float): Percentage of the maximum data value to use as noise.
+    
+    Returns:
+    - data_normalized (np.ndarray): Data normalized to [0, 1] with shape (samples, sequence_length, 1).
+    """
+    # Load data
     data = pd.read_csv(file_path)
     data = data.iloc[:, -sequence_length:]  # Take last sequence_length columns
     data = data.values
     
-    # Normalize per sample
-    data_mean = np.mean(data, axis=1, keepdims=True)
-    data_std = np.std(data, axis=1, keepdims=True)
-    data_std = np.where(data_std == 0, 1e-6, data_std)
-    data_normalized = (data - data_mean) / data_std
+    # Add noise to the raw data
+    noise = np.random.normal(loc=0, scale=noise_factor * np.max(data), size=data.shape)
+    data_with_noise = data + noise
     
-    return data_normalized.reshape(-1, sequence_length, 1), (data_mean, data_std)
+    # Normalize the noisy data to the range [0, 1]
+    data_min = np.min(data_with_noise, axis=1, keepdims=True)
+    data_max = np.max(data_with_noise, axis=1, keepdims=True)
+    data_normalized = (data_with_noise - data_min) / (data_max - data_min)
+    
+    return data_normalized.reshape(-1, sequence_length, 1)
 
 def train_dof_model(dof_number, x_train, x_val, project_dir):
     """Train model for a specific DOF"""
@@ -79,20 +94,20 @@ def train_dof_model(dof_number, x_train, x_val, project_dir):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     callbacks = [
         tf.keras.callbacks.ModelCheckpoint(
-            os.path.join(project_dir, 'models', f'best_model_dof_{dof_number}_{timestamp}.keras'),
+            os.path.join(project_dir, 'models', f'best_model_dof_{dof_number}_CONV1D.keras'),
             monitor='val_loss',
             save_best_only=True,
             verbose=1
         ),
         tf.keras.callbacks.EarlyStopping(
             monitor='val_loss',
-            patience=15,
+            patience=20,
             restore_best_weights=True,
             verbose=1
         ),
         tf.keras.callbacks.ReduceLROnPlateau(
             monitor='val_loss',
-            factor=0.5,
+            factor=0.9,
             patience=5,
             min_lr=1e-6,
             verbose=1
@@ -102,7 +117,7 @@ def train_dof_model(dof_number, x_train, x_val, project_dir):
     # Train
     history = model.fit(
         x_train, x_train,
-        epochs=1000,
+        epochs=150,
         batch_size=32,
         validation_data=(x_val, x_val),
         callbacks=callbacks,
@@ -126,10 +141,10 @@ def plot_training_curves(histories, dof_numbers, project_dir):
                 color=colors[i],
                 linestyle='--')
     
-    plt.xlabel('Epochs', fontsize=12)
-    plt.ylabel('MAE Loss', fontsize=12)
+    plt.xlabel('Épocas', fontsize=12)
+    plt.ylabel('Erro médio absoluto de reconstrução', fontsize=16)
     plt.yscale('log')
-    plt.title('Training History for Different DOFs', fontsize=14)
+    plt.title('Histórico de treinamento dos diferentes graus de liberdade', fontsize=20)
     plt.legend(fontsize=10)
     plt.grid(True)
     
@@ -139,22 +154,34 @@ def plot_training_curves(histories, dof_numbers, project_dir):
     plt.show()
 
 def plot_reconstructions(models, test_data, dof_numbers, project_dir):
-    """Plot reconstruction examples for each DOF"""
-    fig, axes = plt.subplots(len(models), 2, figsize=(15, 5*len(models)))
+    """Plot reconstruction examples with overlaid signals"""
+    fig, axes = plt.subplots(len(models), 1, figsize=(15, 5*len(models)))
+    
+    # Make axes a list if there's only one subplot
+    if len(models) == 1:
+        axes = [axes]
+    
+    # Colors and styles
+    original_style = dict(color='blue', linewidth=1.5, label='Original', alpha=0.8)
+    recon_style = dict(color='red', linewidth=1.5, linestyle='--', label='Reconstruído', alpha=0.8)
     
     for i, (model, dof, data) in enumerate(zip(models, dof_numbers, test_data)):
         # Get reconstructions
         reconstruction = model.predict(data[:1])
         
-        # Plot original
-        axes[i, 0].plot(data[0].flatten(), label='Original')
-        axes[i, 0].set_title(f'DOF {dof} - Original')
-        axes[i, 0].grid(True)
+        # Plot both signals on same subplot
+        axes[i].plot(data[0].flatten(), **original_style)
+        axes[i].plot(reconstruction[0].flatten(), **recon_style)
         
-        # Plot reconstruction
-        axes[i, 1].plot(reconstruction[0].flatten(), label='Reconstructed')
-        axes[i, 1].set_title(f'DOF {dof} - Reconstructed')
-        axes[i, 1].grid(True)
+        # Customize subplot
+        axes[i].set_title(f'DOF {dof}', fontsize=13)
+        axes[i].grid(True, alpha=0.3)
+        axes[i].set_xlabel('Posição', fontsize=10)
+        axes[i].set_ylabel('Amplitude', fontsize=10)
+        axes[i].legend(fontsize=12)
+        
+        # Adjust ticks font size
+        axes[i].tick_params(axis='both', which='major', labelsize=10)
     
     plt.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -165,10 +192,10 @@ def plot_reconstructions(models, test_data, dof_numbers, project_dir):
 def main():
     # Setup
     project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    data_dir = os.path.join(project_dir, 'data', 'vbi_baseline_train')
+    data_dir = os.path.join('/Users/home/Documents/github/convolutional_autoencoder/data/dataset')
     
     # DOFs to process
-    dof_numbers = [1, 4, 5, 6]
+    dof_numbers = [4]
     
     # Store results
     histories = []
@@ -180,8 +207,8 @@ def main():
         print(f"\nProcessing DOF {dof}")
         
         # Load data
-        file_path = os.path.join(data_dir, f'acc_vehicle_data_dof_{dof}_healthy.csv')
-        data, norm_params = load_and_preprocess_dof_data(file_path)
+        file_path = os.path.join(data_dir, f'acc_vehicle_data_dof_{dof}.csv')
+        data = load_and_preprocess_dof_data(file_path)
         
         # Split data
         x_train_val, x_test = train_test_split(data, test_size=0.2, random_state=42)

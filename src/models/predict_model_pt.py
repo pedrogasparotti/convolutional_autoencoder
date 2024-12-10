@@ -5,10 +5,57 @@ from tensorflow.keras.losses import MeanAbsoluteError
 from scipy.stats import lognorm
 import scipy.stats as stats
 import matplotlib.pyplot as plt
-from sklearn.metrics import roc_curve, auc
+from sklearn.metrics import roc_curve, auc, confusion_matrix, classification_report
 import os
 import pandas as pd
+from sklearn.cluster import KMeans
 import seaborn as sns
+
+def generate_damage_index_report(damage_indices, conditions):
+    """
+    Generates a report on the fluctuations of damage indices for each class.
+    
+    Parameters:
+    - damage_indices (numpy.ndarray): Array of damage indices.
+    - conditions (numpy.ndarray): Array of condition labels corresponding to each damage index.
+    
+    Returns:
+    - report_df (pd.DataFrame): DataFrame containing the statistical summary for each class.
+    """
+    # Create a DataFrame for analysis
+    df = pd.DataFrame({'Damage_Index': damage_indices, 'Condition': conditions})
+    
+    # Group by condition and calculate descriptive statistics
+    report = df.groupby('Condition')['Damage_Index'].agg([
+        'mean', 'std', 'min', 'max', 
+        lambda x: np.percentile(x, 25),  # Q1
+        'median',
+        lambda x: np.percentile(x, 75),  # Q3
+    ]).rename(columns={
+        '<lambda_0>': 'Q1',
+        '<lambda_1>': 'Q3'
+    })
+    
+    # Add interquartile range (IQR)
+    report['IQR'] = report['Q3'] - report['Q1']
+    
+    # Reset index for better visualization
+    report_df = report.reset_index()
+    
+    print("\nResumo Estatístico dos Índices de Dano por Classe:")
+    print(report_df)
+    
+    # Plotting the summary
+    plt.figure(figsize=(10, 6))
+    sns.boxplot(x='Condition', y='Damage_Index', data=df, palette='Set2')
+    plt.title('Distribuição dos Índices de Dano por Classe', fontsize=18, weight='bold')
+    plt.xlabel('Classe', fontsize=14)
+    plt.ylabel('Índice de Dano', fontsize=14)
+    plt.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+    
+    return report_df
 
 def load_dae_model(model_path):
     """
@@ -130,15 +177,15 @@ def plot_distribution_fit(data, dist, params):
     plt.figure(figsize=(10, 6))
     
     # Plot histogram of actual data
-    plt.hist(data, bins='auto', density=True, alpha=0.7, label='MAEs reais')
+    plt.hist(data, bins='auto', density=True, alpha=0.7, label='Actual MAEs')
     
     # Plot fitted distribution
     x = np.linspace(min(data), max(data), 100)
-    plt.plot(x, dist.pdf(x, *params), 'r-', lw=2, label=f'Distribuição ajustada ({dist.name})')
+    plt.plot(x, dist.pdf(x, *params), 'r-', lw=2, label=f'Fitted {dist.name}')
     
-    plt.title('Distribuição de MAEs dos Sinais Saudáveis')
+    plt.title('Distribution of Healthy Signal MAEs')
     plt.xlabel('MAE')
-    plt.ylabel('Densidade')
+    plt.ylabel('Density')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.show()
@@ -212,22 +259,23 @@ def plot_distribution_fit(data, dist, params, dist_name, sample_name):
     plt.grid(True, alpha=0.3)
     plt.show()
 
-def kl_divergence(mu1, sigma1, mu2, sigma2):
+def kl_divergence_log_normal(media, desvio, media_train, desvio_train):
     """
-    Calculate the Kullback-Leibler divergence between two normal distributions.
-
+    Calculate the Kullback-Leibler divergence between two log-normal distributions.
+    
     Parameters:
-    mu1 (float): Mean of the first normal distribution.
-    sigma1 (float): Standard deviation of the first normal distribution.
-    mu2 (float): Mean of the second normal distribution.
-    sigma2 (float): Standard deviation of the second normal distribution.
-
+        desvio (float): Standard deviation of the new data (log-normal distribution 2).
+        desvio_train (float): Standard deviation of the trained model (log-normal distribution 1).
+        media (float): Mean of the new data (log-normal distribution 2).
+        media_train (float): Mean of the trained model (log-normal distribution 1).
+    
     Returns:
-    float: The KL divergence from the second distribution to the first.
+        float: Kullback-Leibler divergence (DKL).
     """
-    term1 = np.log(sigma2 / sigma1)
-    term2 = (sigma1**2 + (mu1 - mu2)**2) / (2 * sigma2**2)
-    return term1 + term2 - 0.5
+    term1 = np.log(desvio / desvio_train)
+    term2 = (1 / (2 * (desvio ** 2))) * ((desvio_train ** 2) + (media - media_train) ** 2)
+    dkl = term1 + term2 - 0.5
+    return dkl
 
 # Calculate KL divergence for each pair of healthy and damaged distributions
 def calculate_di(healthy_params, damaged_params):
@@ -238,7 +286,7 @@ def calculate_di(healthy_params, damaged_params):
         dis.append(kl_div)
     return dis
 
-def calculate_sample_damage_indexes(samples, baseline_params):
+def calculate_sample_damage_indexes(samples, baseline_sample):
     """
     Calculate damage indexes by comparing any set of samples against the baseline distribution.
     
@@ -259,33 +307,54 @@ def calculate_sample_damage_indexes(samples, baseline_params):
     sample_params = [stats.norm.fit(sample) for sample in samples]
     
     # Convert baseline parameters to normal distribution parameters
-    baseline_mu, baseline_sigma = baseline_params 
+    baseline_params = [stats.norm.fit(sample) for sample in baseline_sample]
     
     # Calculate KL divergence for samples vs baseline
-    damage_indexes = [kl_divergence(mu, sigma, baseline_mu, baseline_sigma) 
-                     for mu, sigma in sample_params]
+    for baseline_mu, baseline_sigma in baseline_params:
+    
+        damage_indexes = [kl_divergence_log_normal(mu, sigma, baseline_mu, baseline_sigma) 
+                        for mu, sigma in sample_params]
     
     return np.array(damage_indexes)
 
 def plot_lognormal_distribution(mu, sigma, data=None, bins=50, figsize=(10, 6)):
     """
     Plot the log-normal distribution with given parameters and optionally overlay histogram of data.
+    
+    Parameters:
+    mu (float): Location parameter of the log-normal distribution
+    sigma (float): Scale parameter of the log-normal distribution
+    data (array-like, optional): Original data to overlay as histogram
+    bins (int, optional): Number of bins for histogram
+    figsize (tuple, optional): Figure size
+    
+    Returns:
+    tuple: Figure and axes objects
     """
+    # Create figure and axis
     fig, ax = plt.subplots(figsize=figsize)
     
+    # Generate points for the PDF curve
     x = np.linspace(0, max(data) if data is not None else np.exp(mu + 3*sigma), 1000)
     pdf = lognorm.pdf(x, sigma, scale=np.exp(mu))
     
-    ax.plot(x, pdf, 'r-', lw=2, label='PDF Log-normal')
+    # Plot the PDF
+    ax.plot(x, pdf, 'r-', lw=2, label='Log-normal PDF')
     
+    # If data is provided, plot histogram
     if data is not None:
-        ax.hist(data, bins=bins, density=True, alpha=0.5, color='blue', label='Histograma dos Dados')
+        ax.hist(data, bins=bins, density=True, alpha=0.5, color='blue', label='Data histogram')
     
-    ax.set_xlabel('Valor')
-    ax.set_ylabel('Densidade')
-    ax.set_title(f'Distribuição Log-normal (μ={mu:.2f}, σ={sigma:.2f})')
+    # Add labels and title
+    ax.set_xlabel('Value')
+    ax.set_ylabel('Density')
+    ax.set_title(f'Log-normal Distribution (μ={mu:.2f}, σ={sigma:.2f})')
     ax.legend()
+    
+    # Add grid
     ax.grid(True, alpha=0.3)
+    
+    # Tight layout to prevent label cutoff
     plt.tight_layout()
     
     return fig, ax
@@ -328,6 +397,46 @@ def plot_lognormal_fits(samples, parameters, title_prefix):
 
     plt.tight_layout()
     plt.show()
+
+# Alternative version with sequential scatter plot
+def plot_mae_distribution_scatter_alltogether(healthy_maes, anomalous_maes_5pc, anomalous_maes_10pc, baseline_maes, figsize=(12, 8)):
+    """
+    Create sequential scatter plots of all MAE values.
+    
+    Parameters:
+        healthy_maes (np.array): MAEs from healthy data
+        anomalous_maes_5pc (np.array): MAEs from 5% damage data
+        anomalous_maes_10pc (np.array): MAEs from 10% damage data
+        baseline_maes (np.array): MAEs from baseline data
+        figsize (tuple): Figure size (width, height)
+    """
+    plt.figure(figsize=figsize)
+    
+    datasets = {
+        'Healthy': (healthy_maes, 'green'),
+        'Anomalous 5%': (anomalous_maes_5pc, 'red'),
+        'Anomalous 10%': (anomalous_maes_10pc, 'red'),
+        'Baseline': (baseline_maes, 'red')
+    }
+    
+    # Create scatter plots
+    for label, (data, color) in datasets.items():
+        indices = np.arange(len(data))
+        plt.scatter(indices, data, 
+                   alpha=0.5, 
+                   c=color, 
+                   label=f'{label} MAEs',
+                   s=30)
+    
+    plt.title('Sequential MAE Values')
+    plt.xlabel('Sample Index')
+    plt.ylabel('Mean Absolute Error (MAE)')
+    plt.grid(True, alpha=0.3)
+    plt.yscale('log')
+    
+    plt.tight_layout()
+    plt.show()
+
 
 def compare_lognormal_pairs(healthy_params, damaged_params):
     """
@@ -374,53 +483,74 @@ def compare_lognormal_pairs(healthy_params, damaged_params):
 
 def plot_damage_indices(healthy_indices, damaged_indices, figsize=(12, 6)):
     """
-    Create a scatter plot of damage indices for healthy and damaged samples.
+    Cria um gráfico de dispersão dos índices de dano para amostras saudáveis e danificadas.
+
+    Parâmetros:
+    healthy_indices: numpy.ndarray - Índices de dano para amostras saudáveis.
+    damaged_indices: numpy.ndarray - Índices de dano para amostras danificadas.
+    figsize: tuple - Tamanho da figura (largura, altura).
     """
     plt.figure(figsize=figsize)
-    
+
+    # Cria coordenadas x (apenas para visualização)
     healthy_x = np.random.normal(0, 0.1, len(healthy_indices))
     damaged_x = np.random.normal(1, 0.1, len(damaged_indices))
-    
-    plt.scatter(healthy_x, healthy_indices, c='blue', alpha=0.5, label='Saudáveis')
-    plt.scatter(damaged_x, damaged_indices, c='red', alpha=0.5, label='Danificados')
-    
+
+    # Gráficos de dispersão
+    plt.scatter(healthy_x, healthy_indices, c='blue', alpha=0.5, label='Saudável')
+    plt.scatter(damaged_x, damaged_indices, c='red', alpha=0.5, label='Danificado')
+
+    # Adiciona linhas de média
     plt.axhline(y=np.mean(healthy_indices), color='blue', linestyle='--', alpha=0.5)
     plt.axhline(y=np.mean(damaged_indices), color='red', linestyle='--', alpha=0.5)
-    
-    plt.title('Índices de Dano: Amostras Saudáveis vs Danificadas')
-    plt.xlabel('Tipo de Amostra')
-    plt.ylabel('Índice de Dano')
-    plt.xticks([0, 1], ['Saudáveis', 'Danificados'])
+
+    # Personalização do gráfico
+    plt.title('Índices de Dano: Saudável vs Danificado', fontsize=18, weight='bold')
+    plt.xlabel('Tipo de Amostra', fontsize=14)
+    plt.ylabel('Índice de Dano', fontsize=14)
+    plt.xticks([0, 1], ['Saudável', 'Danificado'], fontsize=12)
     plt.grid(True, alpha=0.3)
-    plt.legend()
-    
-    stats_text = f'Saudáveis: μ={np.mean(healthy_indices):.2f}, σ={np.std(healthy_indices):.2f}\n'
-    stats_text += f'Danificados: μ={np.mean(damaged_indices):.2f}, σ={np.std(damaged_indices):.2f}'
-    plt.text(0.02, 0.98, stats_text, transform=plt.gca().transAxes, 
+    plt.legend(fontsize=12)
+
+    # Adiciona estatísticas
+    stats_text = f'Saudável: μ={np.mean(healthy_indices):.2f}, σ={np.std(healthy_indices):.2f}\n'
+    stats_text += f'Danificado: μ={np.mean(damaged_indices):.2f}, σ={np.std(damaged_indices):.2f}'
+    plt.text(0.02, 0.98, stats_text, transform=plt.gca().transAxes,
              verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-    
+
     plt.tight_layout()
     return plt.gcf(), plt.gca()
 
 def plot_roc_curve(healthy_di, damaged_di):
     """
-    Plots the ROC curve for damage index-based classification.
+    Plota a curva ROC para classificação baseada no índice de dano.
+
+    Parâmetros:
+    healthy_di: numpy.ndarray
+        Índices de dano para amostras saudáveis.
+    damaged_di: numpy.ndarray
+        Índices de dano para amostras danificadas.
     """
+    # Combina índices de dano e cria rótulos
     scores = np.concatenate([healthy_di, damaged_di])
     labels = np.concatenate([np.zeros(len(healthy_di)), np.ones(len(damaged_di))])
-    
+
+    # Calcula a curva ROC
     fpr, tpr, thresholds = roc_curve(labels, scores)
-    roc_auc = auc(fpr, tpr)
-    
+    roc_auc = auc(fpr, tpr)  # Área sob a curva ROC
+
+    # Plota a curva ROC
     plt.figure(figsize=(10, 6))
     plt.plot(fpr, tpr, color='blue', lw=2, label=f'Curva ROC (AUC = {roc_auc:.2f})')
-    plt.plot([0, 1], [0, 1], color='gray', linestyle='--')
-    plt.title("Curva ROC: Saudáveis vs Danificados")
-    plt.xlabel("Taxa de Falsos Positivos (FPR)")
-    plt.ylabel("Taxa de Verdadeiros Positivos (TPR)")
-    plt.legend(loc="lower right")
+    plt.plot([0, 1], [0, 1], color='gray', linestyle='--')  # Linha diagonal
+    plt.title("Curva ROC: Saudável vs Danificado", fontsize=18, weight='bold')
+    plt.xlabel("Taxa de Falsos Positivos (FPR)", fontsize=14)
+    plt.ylabel("Taxa de Verdadeiros Positivos (TPR)", fontsize=14)
+    plt.legend(fontsize=12)
     plt.grid(alpha=0.5)
+    plt.tight_layout()
     plt.show()
+
 
 def plot_damage_indices_three_sets(healthy_di, damaged_di, damaged_10pc_di, labels=['Healthy', 'Damaged', '10% Damaged']):
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -444,29 +574,33 @@ def plot_damage_indices_three_sets(healthy_di, damaged_di, damaged_10pc_di, labe
 def plot_multiple_roc_curves(healthy_di, damaged_di, damaged_10pc_di):
     plt.figure(figsize=(10, 6))
     
-    y_true_five = ['Danificado'] * len(damaged_di) + ['Saudável'] * len(healthy_di)
+    # Calculate ROC curves for both damage scenarios
+    y_true_five = ['Damaged'] * len(damaged_di) + ['Healthy'] * len(healthy_di)
     y_scores_five = damaged_di + healthy_di
     
-    y_true_10pc = ['Danificado'] * len(damaged_10pc_di) + ['Saudável'] * len(healthy_di)
+    y_true_10pc = ['Damaged'] * len(damaged_10pc_di) + ['Healthy'] * len(healthy_di)
     y_scores_10pc = damaged_10pc_di + healthy_di
     
-    fpr_five, tpr_five, _ = roc_curve([1 if y == 'Danificado' else 0 for y in y_true_five], y_scores_five)
+    # Plot ROC curve for Damage Five
+    fpr_five, tpr_five, _ = roc_curve([1 if y == 'Damaged' else 0 for y in y_true_five], y_scores_five)
     roc_auc_five = auc(fpr_five, tpr_five)
     plt.plot(fpr_five, tpr_five, color='darkorange', lw=2, 
-             label=f'Curva ROC para 5% de Danos (AUC = {roc_auc_five:.2f})')
+             label=f'Damage Five ROC (area = {roc_auc_five:.2f})')
     
-    fpr_10pc, tpr_10pc, _ = roc_curve([1 if y == 'Danificado' else 0 for y in y_true_10pc], y_scores_10pc)
+    # Plot ROC curve for 10% Damage
+    fpr_10pc, tpr_10pc, _ = roc_curve([1 if y == 'Damaged' else 0 for y in y_true_10pc], y_scores_10pc)
     roc_auc_10pc = auc(fpr_10pc, tpr_10pc)
     plt.plot(fpr_10pc, tpr_10pc, color='blue', lw=2, 
-             label=f'Curva ROC para 10% de Danos (AUC = {roc_auc_10pc:.2f})')
+             label=f'10% Damage ROC (area = {roc_auc_10pc:.2f})')
     
+    # Plot diagonal line
     plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
     
     plt.xlim([0.0, 1.0])
     plt.ylim([0.0, 1.05])
-    plt.xlabel('Taxa de Falsos Positivos')
-    plt.ylabel('Taxa de Verdadeiros Positivos')
-    plt.title('Curvas ROC Comparativas')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic')
     plt.legend(loc="lower right")
     plt.grid(True)
     plt.show()
@@ -503,14 +637,121 @@ def create_dataset_from_damage_indices(healthy_di, damage_5pc_di, damaged_10pc_d
 
     return dataset
 
+def plot_mae_distribution_scatter(baseline_maes, healthy_maes, anomalous_maes_5pc, anomalous_maes_10pc, figsize=(12, 8)):
+    """
+    Create a vertical scatter plot showing the distribution of all MAE values.
+    
+    Parameters:
+        healthy_maes (np.array): MAEs from healthy data
+        anomalous_maes_5pc (np.array): MAEs from 5% damage data
+        anomalous_maes_10pc (np.array): MAEs from 10% damage data
+        baseline_maes (np.array): MAEs from baseline data
+        figsize (tuple): Figure size (width, height)
+    """
+    plt.figure(figsize=figsize)
+    
+    # Define datasets with their properties
+    datasets = {
+        'Baseline': (baseline_maes, 'green', 1),
+        'Healthy': (healthy_maes, 'blue', 2),
+        'Anomalous 5%': (anomalous_maes_5pc, 'orange', 3),
+        'Anomalous 10%': (anomalous_maes_10pc, 'red', 4)
+    }
+    
+    # Create scatter plots for each dataset
+    for label, (data, color, x_pos) in datasets.items():
+        # Create jittered x positions
+        x_jittered = np.random.normal(x_pos, 0.04, size=len(data))
+        
+        plt.scatter(x_jittered, data, 
+                   alpha=0.5, 
+                   c=color, 
+                   label=f'{label} MAEs',
+                   s=30)
+    
+    plt.title('Distribution of MAE Values')
+    plt.ylabel('Mean Absolute Error (MAE)')
+    plt.xlabel('Datasets')
+    
+    # Set x-ticks at the center of each distribution
+    plt.xticks([1, 2, 3, 4], ['Baseline', 'Healthy', 'Anomalous 5%', 'Anomalous 10%'])
+    
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.yscale('log')
+    
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_all_mae_distributions(healthy_maes, anomalous_maes_5pc, anomalous_maes_10pc, baseline_maes, dist=stats.lognorm):
+    """
+    Plot histograms and fitted distributions for all MAE datasets.
+    
+    Parameters:
+        healthy_maes (np.array): MAEs from healthy data
+        anomalous_maes_5pc (np.array): MAEs from 5% damage data
+        anomalous_maes_10pc (np.array): MAEs from 10% damage data
+        baseline_maes (np.array): MAEs from baseline data
+        dist (scipy.stats distribution): Distribution to fit (default: lognorm)
+    """
+    plt.figure(figsize=(12, 8))
+    
+    # Define data sets and their properties
+    datasets = {
+        'Healthy': (healthy_maes, 'blue', 0.3),
+        #'Anomalous 5%': (anomalous_maes_5pc, 'orange', 0.3),
+        #'Anomalous 10%': (anomalous_maes_10pc, 'red', 0.3),
+        'Baseline': (baseline_maes, 'green', 0.3)
+    }
+    
+    # Plot histograms and fitted distributions for each dataset
+    for label, (data, color, alpha) in datasets.items():
+        # Fit distribution
+        params = dist.fit(data)
+        
+        # Plot histogram
+        plt.hist(data, bins='auto', density=True, alpha=alpha, 
+                color=color, label=f'{label} MAEs')
+        
+        # Plot fitted distribution
+        x = np.linspace(min(data), max(data), 100)
+        plt.plot(x, dist.pdf(x, *params), '-', 
+                color=color, lw=2, label=f'Fitted {label}')
+    
+    plt.title('Distribution Comparison of MAEs')
+    plt.xlabel('Mean Absolute Error (MAE)')
+    plt.ylabel('Density')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Add log scale for better visualization if needed
+    plt.yscale('log')
+    
+    # Adjust layout to prevent label clipping
+    plt.tight_layout()
+    plt.show()
+    
+    # Print distribution parameters
+    print("\nDistribution Parameters:")
+    for label, (data, _, _) in datasets.items():
+        params = dist.fit(data)
+        print(f"{label}: {params}")
+
+def normalize_damage_indexes(damage_indices):
+    min_val, max_val = np.min(damage_indices), np.max(damage_indices)
+    range_min, range_max = (0,1)
+    normalized = (damage_indices - min_val) / (max_val - min_val)
+    return normalized * (range_max - range_min) + range_min
+
 def main():
     
     # Define paths
     model_path = r'/Users/home/Documents/github/convolutional_autoencoder/models/autoencoder_best_model.keras'
-    healthy_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_baseline_val.npy'
-    baseline_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_baseline_train.npy'
-    anomalous_path_5pc = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_5pc.npy'
-    anomalous_path_10pc = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_10pc.npy'
+    healthy_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_5_val.npy'
+    baseline_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_5_baseline.npy'
+    anomalous_path_5pc = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_5_5pc.npy'
+    anomalous_path_10pc = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_5_10pc.npy'
 
     # Load the trained DAE model
     autoencoder_model = load_dae_model(model_path)
@@ -531,9 +772,14 @@ def main():
     baseline_params = fit_mae_distribution(baseline_maes, plot=False)
 
     # Generate subsets for all datasets
+    baseline_subset = sample_mae_subsets(baseline_maes)
     healthy_subsets = sample_mae_subsets(healthy_maes)
     damaged_subsets_5pc = sample_mae_subsets(anomalous_maes_5pc)
     damaged_10pc_subsets = sample_mae_subsets(anomalous_maes_10pc)
+
+    # Sample from each subset
+    baseline_samples = [tf.gather(subset, tf.random.shuffle(tf.range(tf.shape(subset)[0]))[:10]) 
+                      for subset in baseline_subset]
 
     # Sample from each subset
     healthy_samples = [tf.gather(subset, tf.random.shuffle(tf.range(tf.shape(subset)[0]))[:10]) 
@@ -546,110 +792,148 @@ def main():
                           for subset in damaged_10pc_subsets]
 
     # Convert to numpy arrays
+    baseline_samples = [tensor.numpy() for tensor in baseline_samples]
     healthy_samples_np = [tensor.numpy() for tensor in healthy_samples]
     damaged_samples_np = [tensor.numpy() for tensor in damaged_samples]
     damaged_10pc_samples_np = [tensor.numpy() for tensor in damaged_10pc_samples]
 
     # Calculate damage indices
-    healthy_di = calculate_sample_damage_indexes(healthy_samples_np, baseline_params)
-    damaged_di_5pc = calculate_sample_damage_indexes(damaged_samples_np, baseline_params)
-    damaged_10pc_di = calculate_sample_damage_indexes(damaged_10pc_samples_np, baseline_params)
+    healthy_di = calculate_sample_damage_indexes(healthy_samples_np, baseline_samples)
+    damaged_di_5pc = calculate_sample_damage_indexes(damaged_samples_np, baseline_samples)
+    damaged_10pc_di = calculate_sample_damage_indexes(damaged_10pc_samples_np, baseline_samples)
 
-    # Plot damage indices for all three datasets
-    fig, ax = plot_damage_indices_three_sets(healthy_di, damaged_di_5pc, damaged_10pc_di,
-                                             labels=['Healthy', '5% Damage', '10% Damage'])
-    plt.show()
+    damage_indices = np.concatenate([healthy_di, damaged_di_5pc, damaged_10pc_di])
+    normalized_damage_indices = normalize_damage_indexes(damage_indices)
 
-    # Create labeled dataset from damage indices
-    dataset = create_dataset_from_damage_indices(healthy_di, damaged_di_5pc, damaged_10pc_di)
+    conditions = np.concatenate([
+        np.full(len(healthy_di), 'Healthy'),
+        np.full(len(damaged_di_5pc), '5% Damage'),
+        np.full(len(damaged_10pc_di), '10% Damage')
+    ])
+
+    # Create a DataFrame
+    dataset = pd.DataFrame({
+        'Damage_Index': normalized_damage_indices,
+        'Condition': conditions
+    })
 
     print(dataset.tail())
 
-    # Prepare data for SVM
-    X = dataset[['Damage_Index']].values
-    y = dataset['Condition'].values
+    # Prepare data for clustering
+    X = dataset[['Damage_Index']].values  # Using only Damage_Index as the feature
 
-    # Split data into training and testing sets
-    from sklearn.model_selection import train_test_split
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, stratify=y, random_state=42
-    )
+    # Apply KMeans clustering
+    kmeans = KMeans(n_clusters=3, random_state=42)
+    kmeans.fit(X)
+    cluster_labels = kmeans.labels_
 
-    # Feature scaling
-    from sklearn.preprocessing import StandardScaler
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
+    # Add cluster labels to the dataset
+    dataset['Cluster'] = cluster_labels
 
-    # Initialize and train the SVM classifier
-    from sklearn.svm import SVC
-    import seaborn as sns
-    svm_classifier = SVC(kernel='rbf', random_state=42)
-    svm_classifier.fit(X_train_scaled, y_train)
+    # Map clusters to actual damage conditions based on mean Damage_Index in each cluster
+    cluster_mapping = {}
+    for cluster in np.unique(cluster_labels):
+        # Get the mean Damage_Index for the cluster
+        mean_di = dataset[dataset['Cluster'] == cluster]['Damage_Index'].mean()
+        cluster_mapping[cluster] = mean_di
 
-    # Make predictions on the test set
-    y_pred = svm_classifier.predict(X_test_scaled)
+    # Sort clusters by mean Damage_Index
+    sorted_clusters = sorted(cluster_mapping.items(), key=lambda x: x[1])
 
-    # Evaluate the classifier
-    from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc
+    # Assign cluster labels to conditions
+    cluster_to_condition = {}
+    conditions_order = ['Healthy', '5% Damage', '10% Damage']
+    for idx, (cluster, _) in enumerate(sorted_clusters):
+        cluster_to_condition[cluster] = conditions_order[idx]
+
+    # Map the clusters to conditions
+    dataset['Predicted_Condition'] = dataset['Cluster'].map(cluster_to_condition)
+
+    # Evaluate the clustering performance
     print("Classification Report:")
-    print(classification_report(y_test, y_pred, target_names=['Healthy', '5% Damage', '10% Damage']))
+    print(classification_report(dataset['Condition'], dataset['Predicted_Condition'], target_names=['Healthy', '5% Damage', '10% Damage']))
 
-    cm = confusion_matrix(y_test, y_pred)
+    # Confusion Matrix
+    cm = confusion_matrix(dataset['Condition'], dataset['Predicted_Condition'], labels=['Healthy', '5% Damage', '10% Damage'])
     cm_df = pd.DataFrame(cm, index=['Healthy', '5% Damage', '10% Damage'],
                          columns=['Predicted Healthy', 'Predicted 5% Damage', 'Predicted 10% Damage'])
 
     # Plot the confusion matrix
     plt.figure(figsize=(6, 4))
     sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues')
-    plt.title('Matriz de Confusão')
-    plt.ylabel('Condição Real')
-    plt.xlabel('Condição Prevista')
+    plt.title('Matriz de confusão')
+    plt.ylabel('Condição verdadeira')
+    plt.xlabel('Condição prevista')
     plt.show()
 
-    # Agora, plotar as curvas ROC para Saudável vs 5% de Danos e Saudável vs 10% de Danos
+    # Visualize the clusters
+    plt.figure(figsize=(8, 6))
+    sns.scatterplot(x='Damage_Index', y=np.zeros_like(dataset['Damage_Index']), hue='Predicted_Condition', data=dataset, palette='viridis', s=100)
+    plt.title('Agrupamento KMeans para o índice de dano')
+    plt.xlabel('Índice de dano')
+    plt.yticks([])
+    plt.show()
 
-    # Saudável vs 5% de Danos
-    # Preparar os dados
+    di_h_vs_10pc = np.concatenate([healthy_di, damaged_10pc_di])
+    labels_h_vs_10pc = np.concatenate([np.zeros(len(healthy_di)), np.ones(len(damaged_di_5pc))])
+
+    # Healthy vs 5% Damage
+    # Prepare data
     di_h_vs_5pc = np.concatenate([healthy_di, damaged_di_5pc])
     labels_h_vs_5pc = np.concatenate([np.zeros(len(healthy_di)), np.ones(len(damaged_di_5pc))])
 
-    # Calcular a curva ROC e AUC
+    # Compute ROC curve and AUC
     fpr_h_vs_5pc, tpr_h_vs_5pc, _ = roc_curve(labels_h_vs_5pc, di_h_vs_5pc)
     auc_h_vs_5pc = auc(fpr_h_vs_5pc, tpr_h_vs_5pc)
 
-    # Plotar a curva ROC
+    # Plot ROC curve
     plt.figure()
     plt.plot(fpr_h_vs_5pc, tpr_h_vs_5pc, color='darkorange',
-            lw=2, label='Curva ROC (AUC = %0.2f)' % auc_h_vs_5pc)
+             lw=2, label='Curva ROC (área = %0.2f)' % auc_h_vs_5pc)
     plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-    plt.title('Curva ROC: Saudável vs 5% de Danos')
-    plt.xlabel('Taxa de Falsos Positivos')
-    plt.ylabel('Taxa de Verdadeiros Positivos')
+    plt.title('Curva ROC: saudável vs dano de 5%')
+    plt.xlabel('Taxa de falsos positivos')
+    plt.ylabel('Taxa de verdadeiros positivos')
     plt.legend(loc='lower right')
     plt.grid(True)
     plt.show()
 
-    # Saudável vs 10% de Danos
-    # Preparar os dados
+    # Healthy vs 10% Damage
+    # Prepare data
     di_h_vs_10pc = np.concatenate([healthy_di, damaged_10pc_di])
     labels_h_vs_10pc = np.concatenate([np.zeros(len(healthy_di)), np.ones(len(damaged_10pc_di))])
 
-    # Calcular a curva ROC e AUC
+    # Compute ROC curve and AUC
     fpr_h_vs_10pc, tpr_h_vs_10pc, _ = roc_curve(labels_h_vs_10pc, di_h_vs_10pc)
     auc_h_vs_10pc = auc(fpr_h_vs_10pc, tpr_h_vs_10pc)
 
-    # Plotar a curva ROC
+    # Plot ROC curve
     plt.figure()
     plt.plot(fpr_h_vs_10pc, tpr_h_vs_10pc, color='green',
-            lw=2, label='Curva ROC (AUC = %0.2f)' % auc_h_vs_10pc)
+             lw=2, label='ROC curve (area = %0.2f)' % auc_h_vs_10pc)
     plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-    plt.title('Curva ROC: Saudável vs 10% de Danos')
-    plt.xlabel('Taxa de Falsos Positivos')
-    plt.ylabel('Taxa de Verdadeiros Positivos')
+    plt.title('Curva ROC: saudável vs dano de 10%')
+    plt.xlabel('Taxa de falsos positivos')
+    plt.ylabel('Taxa de verdadeiros positivos')
     plt.legend(loc='lower right')
     plt.grid(True)
     plt.show()
+
+    damage_indices = np.concatenate([healthy_di, damaged_di_5pc, damaged_10pc_di])
+    conditions = np.concatenate([
+        np.full(len(healthy_di), 'Saudável'),
+        np.full(len(damaged_di_5pc), 'Dano 5%'),
+        np.full(len(damaged_10pc_di), 'Dano 10%')
+    ])
+
+    # Generate the damage index report
+    report_df = generate_damage_index_report(normalized_damage_indices, conditions)
+    
+    # Save the report to a CSV file
+    report_file = "damage_index_report.csv"
+    report_df.to_csv(report_file, index=False)
+    print(f"Relatório salvo em: {report_file}")
+
 
 if __name__ == '__main__':
     main()

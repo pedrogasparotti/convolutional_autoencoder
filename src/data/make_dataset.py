@@ -70,7 +70,7 @@ def transform_to_matrices(dados, target_shape, normalize=True):
     print(f"Final matrix shape: {accel_matrices.shape}")
     return accel_matrices
 
-def save_matrices(matrices, output_path, file_name="acc_vehicle_data_dof_6_healthy.npy"):
+def save_matrices(matrices, output_path, file_name="acc_vehicle_data_dof_5_10pc.npy"):
     """
     Saves the 3D matrix data to a .npy file.
     Parameters:
@@ -84,7 +84,7 @@ def save_matrices(matrices, output_path, file_name="acc_vehicle_data_dof_6_healt
     print(f"Matrix data saved to {file_path}")
 
 # Example usage:
-file_path = "/Users/home/Documents/github/convolutional_autoencoder/data/vbi_baseline_train/acc_vehicle_data_dof_6_healthy.csv"
+file_path = "/Users/home/Documents/github/convolutional_autoencoder/data/dataset/acc_vehicle_data_dof_5_10pc.csv"
 output_path = "/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy"
 
 # Process

@@ -143,16 +143,16 @@ def run_bayesian_optimization(dof_number, x_train, x_val, project_dir):
 
 def main():
     project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    data_dir = os.path.join(project_dir, 'data', 'vbi_baseline_train')
+    data_dir = os.path.join(project_dir, 'data', 'dataset')
     
-    dof_numbers = [1, 4, 5, 6]
+    dof_numbers = [5]
     results = {}
     
     for dof in dof_numbers:
         print(f"\nProcessing DOF {dof}")
         
         # Load and prepare data
-        file_path = os.path.join(data_dir, f'acc_vehicle_data_dof_{dof}_healthy.csv')
+        file_path = os.path.join(data_dir, f'acc_vehicle_data_dof_{dof}.csv')
         data, norm_params = load_and_preprocess_dof_data(file_path)
         
         x_train_val, x_test = train_test_split(data, test_size=0.2, random_state=42)

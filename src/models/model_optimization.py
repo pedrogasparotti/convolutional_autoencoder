@@ -3,193 +3,226 @@ import keras_tuner as kt
 import os
 from datetime import datetime
 import numpy as np
-from tensorflow.keras import mixed_precision
+from tensorflow.keras import layers, models, Input, regularizers
+from tensorflow.keras.regularizers import l1, l2, l1_l2
 from sklearn.model_selection import train_test_split
-import sys
 
-# Add project root to Python path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-
-from models.autoencoder import build_autoencoder_single_model
-
-class TrainingTuner(kt.HyperModel):
-    def __init__(self, input_shape=(44, 44, 1), latent_dim=128):
+class EnhancedTrainingTuner(kt.HyperModel):
+    def __init__(self, input_shape):
+        super().__init__()
         self.input_shape = input_shape
-        self.latent_dim = latent_dim
-        
+
     def build(self, hp):
-        # Base model architecture remains the same
-        model = build_autoencoder_single_model(
-            input_shape=self.input_shape,
-            latent_dim=self.latent_dim
-        )
+        """
+        Builds the autoencoder model with enhanced hyperparameter search space.
         
-        # Hyperparameters to optimize
-        init_lr = hp.Float('initial_learning_rate', 1e-4, 1e-2, sampling='log')
+        Parameters:
+        - hp (HyperParameters): Hyperparameters to tune.
         
-        # Optimizer parameters
-        optimizer_type = hp.Choice('optimizer_type', ['adam', 'sgd'])
+        Returns:
+        - Model: Compiled autoencoder model.
+        """
+        # Architecture hyperparameters
+        initial_filters = hp.Int('initial_filters', 32, 128, step=32)
+        n_conv_layers = hp.Int('n_conv_layers', 2, 4)
+        kernel_sizes = hp.Choice('kernel_size', [3, 5, 7])
+        latent_dim = hp.Int('latent_dim', 64, 512, step=64)
         
-        if optimizer_type == 'adam':
-            beta_1 = hp.Float('adam_beta_1', 0.8, 0.99)
-            beta_2 = hp.Float('adam_beta_2', 0.99, 0.9999)
-            optimizer = tf.keras.optimizers.Adam(
-                learning_rate=init_lr,
-                beta_1=beta_1,
-                beta_2=beta_2,
-                clipnorm=1.0
-            )
+        # Regularization hyperparameters
+        reg_type = hp.Choice('regularization_type', ['none', 'l1', 'l2', 'l1_l2'])
+        reg_strength = hp.Float('reg_strength', 1e-6, 1e-2, sampling='log')
+        dropout_rate = hp.Float('dropout_rate', 0.0, 0.5, step=0.1)
+        
+        # Define regularizer based on type
+        if reg_type == 'l1':
+            regularizer = l1(reg_strength)
+        elif reg_type == 'l2':
+            regularizer = l2(reg_strength)
+        elif reg_type == 'l1_l2':
+            regularizer = l1_l2(l1=reg_strength, l2=reg_strength)
         else:
-            momentum = hp.Float('momentum', 0.8, 0.99)
-            nesterov = hp.Boolean('nesterov')
-            optimizer = tf.keras.optimizers.SGD(
-                learning_rate=init_lr,
-                momentum=momentum,
-                nesterov=nesterov,
-                clipnorm=1.0
-            )
+            regularizer = None
 
-        # Learning rate schedule
-        use_lr_schedule = hp.Boolean('use_lr_schedule')
-        if use_lr_schedule:
-            schedule_type = hp.Choice('lr_schedule_type', ['exponential', 'cosine'])
-            if schedule_type == 'exponential':
-                decay_rate = hp.Float('decay_rate', 0.8, 0.99)
-                decay_steps = hp.Int('decay_steps', 1000, 10000, step=1000)
-                lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-                    init_lr, decay_steps=decay_steps, decay_rate=decay_rate
-                )
-                optimizer.learning_rate = lr_schedule
-            else:  # cosine
-                decay_steps = hp.Int('decay_steps', 1000, 10000, step=1000)
-                lr_schedule = tf.keras.optimizers.schedules.CosineDecay(
-                    init_lr, decay_steps=decay_steps
-                )
-                optimizer.learning_rate = lr_schedule
+        # Training hyperparameters
+        learning_rate = hp.Float('learning_rate', 1e-5, 1e-2, sampling='log')
+        optimizer_choice = hp.Choice('optimizer', ['adam', 'adamw', 'radam', 'rmsprop'])
+        batch_norm = hp.Boolean('batch_normalization')
+        activation = hp.Choice('activation', ['relu', 'elu', 'leaky_relu'])
 
-        # Compile model
-        model.compile(optimizer=optimizer, loss='mae')
+        # Build the model
+        inputs = Input(shape=self.input_shape, name='encoder_input')
+        x = inputs
+
+        # Encoder
+        for i in range(n_conv_layers):
+            filters = initial_filters * (2 ** i)
+            x = layers.Conv2D(
+                filters=filters,
+                kernel_size=kernel_sizes,
+                padding='same',
+                kernel_regularizer=regularizer
+            )(x)
+            
+            if activation == 'leaky_relu':
+                x = layers.LeakyReLU(alpha=0.2)(x)
+            else:
+                x = layers.Activation(activation)(x)
+            
+            if batch_norm:
+                x = layers.BatchNormalization()(x)
+            
+            if dropout_rate > 0:
+                x = layers.Dropout(dropout_rate)(x)
+            
+            x = layers.MaxPooling2D((2, 2), padding='same')(x)
+
+        # Flatten and bottleneck
+        x = layers.Flatten()(x)
+        x = layers.Dense(latent_dim, kernel_regularizer=regularizer)(x)
+        if activation == 'leaky_relu':
+            x = layers.LeakyReLU(alpha=0.2)(x)
+        else:
+            x = layers.Activation(activation)(x)
+
+        # Reshape for decoder
+        # Calculate the shape after encoding
+        encoder_shape = x.shape
+        decoder_dense_shape = np.prod(self.input_shape) // (4 ** n_conv_layers)
+        x = layers.Dense(decoder_dense_shape, kernel_regularizer=regularizer)(x)
+        if batch_norm:
+            x = layers.BatchNormalization()(x)
+        
+        # Calculate reshape dimensions
+        reshape_dim = int(np.sqrt(decoder_dense_shape))
+        x = layers.Reshape((reshape_dim, reshape_dim, 1))(x)
+
+        # Decoder
+        for i in range(n_conv_layers - 1, -1, -1):
+            filters = initial_filters * (2 ** i)
+            x = layers.Conv2DTranspose(
+                filters=filters,
+                kernel_size=kernel_sizes,
+                padding='same',
+                kernel_regularizer=regularizer
+            )(x)
+            
+            if activation == 'leaky_relu':
+                x = layers.LeakyReLU(alpha=0.2)(x)
+            else:
+                x = layers.Activation(activation)(x)
+            
+            if batch_norm:
+                x = layers.BatchNormalization()(x)
+            
+            if dropout_rate > 0:
+                x = layers.Dropout(dropout_rate)(x)
+            
+            x = layers.UpSampling2D((2, 2))(x)
+
+        # Final output layer
+        decoded = layers.Conv2D(1, (3, 3), activation='sigmoid', padding='same', name='decoder_output')(x)
+        
+        # Ensure output shape matches input shape
+        if decoded.shape[1:3] != self.input_shape[0:2]:
+            decoded = layers.Resizing(self.input_shape[0], self.input_shape[1])(decoded)
+
+        model = models.Model(inputs, decoded, name='Enhanced_Autoencoder')
+
+        # Optimizer selection and compilation
+        if optimizer_choice == 'adam':
+            optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+        elif optimizer_choice == 'adamw':
+            optimizer = tf.keras.optimizers.AdamW(learning_rate=learning_rate)
+        elif optimizer_choice == 'radam':
+            optimizer = tf.keras.optimizers.RectifiedAdam(learning_rate=learning_rate)
+        else:  # rmsprop
+            optimizer = tf.keras.optimizers.RMSprop(learning_rate=learning_rate)
+
+        # Loss function selection
+        loss = hp.Choice('loss_function', ['mae', 'mse', 'huber'])
+        if loss == 'huber':
+            loss = tf.keras.losses.Huber()
+
+        model.compile(optimizer=optimizer, loss=loss)
         return model
 
-def create_lr_schedule(hp):
-    """Creates learning rate schedule based on hyperparameters"""
-    schedule_type = hp.Choice('lr_schedule_type', ['exponential', 'cosine', 'step'])
-    initial_lr = hp.Float('initial_lr', 1e-4, 1e-2, sampling='log')
+def run_enhanced_hyperparameter_optimization(x_train, x_val, project_dir, input_shape=(44, 44, 1)):
+    """
+    Runs enhanced hyperparameter optimization using Keras Tuner.
     
-    if schedule_type == 'exponential':
-        decay_rate = hp.Float('decay_rate', 0.8, 0.99)
-        return tf.keras.optimizers.schedules.ExponentialDecay(
-            initial_lr, decay_steps=1000, decay_rate=decay_rate
-        )
-    elif schedule_type == 'cosine':
-        decay_steps = hp.Int('decay_steps', 1000, 10000, step=1000)
-        return tf.keras.optimizers.schedules.CosineDecay(
-            initial_lr, decay_steps=decay_steps
-        )
-    else:  # step
-        return tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-            boundaries=[1000, 2000, 3000],
-            values=[initial_lr, initial_lr*0.1, initial_lr*0.01, initial_lr*0.001]
-        )
-
-def run_hyperparameter_optimization(x_train, x_val, project_dir):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    tuner_dir = os.path.join(project_dir, 'tuner_logs', timestamp)
-    os.makedirs(tuner_dir, exist_ok=True)
-
+    Parameters:
+    - x_train (np.ndarray): Training dataset
+    - x_val (np.ndarray): Validation dataset
+    - project_dir (str): Directory to save results
+    - input_shape (tuple): Shape of input images
+    
+    Returns:
+    - tuple: (best_model, best_hps, history)
+    """
     tuner = kt.BayesianOptimization(
-        hypermodel=TrainingTuner(),
-        objective=kt.Objective("val_loss", direction="min"),
-        max_trials=30,
-        num_initial_points=5,
-        directory=tuner_dir,
-        project_name='training_optimization'
+        hypermodel=EnhancedTrainingTuner(input_shape),
+        objective=kt.Objective('val_loss', direction='min'),
+        max_trials=50,  # Increased number of trials
+        directory=os.path.join(project_dir, 'hyperparam_tuning'),
+        project_name='enhanced_autoencoder_tuning',
+        overwrite=True
     )
 
-    early_stopping = tf.keras.callbacks.EarlyStopping(
-        monitor='val_loss',
-        patience=10,
-        restore_best_weights=True,
-        verbose=1
-    )
+    # Define callbacks
+    callbacks = [
+        tf.keras.callbacks.EarlyStopping(
+            monitor='val_loss',
+            patience=15,
+            restore_best_weights=True
+        ),
+        tf.keras.callbacks.ReduceLROnPlateau(
+            monitor='val_loss',
+            factor=0.5,
+            patience=5,
+            min_lr=1e-6
+        )
+    ]
 
-    # Search
+    # Search strategy
     tuner.search(
         x_train, x_train,
         validation_data=(x_val, x_val),
-        epochs=50,
+        epochs=100,  # Increased max epochs
         batch_size=32,
-        callbacks=[early_stopping],
+        callbacks=callbacks,
         verbose=1
     )
 
-    # Get best hyperparameters
-    best_hps = tuner.get_best_hyperparameters(1)[0]
-    print("\nBest Hyperparameters:")
-    for hp in best_hps.values:
-        print(f"{hp}: {best_hps.values[hp]}")
-
-    # Train best model
+    # Get best hyperparameters and retrain
+    best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
     best_model = tuner.hypermodel.build(best_hps)
+    
+    # Final training with best parameters
     history = best_model.fit(
         x_train, x_train,
         validation_data=(x_val, x_val),
-        epochs=100,
+        epochs=150,  # Extended final training
         batch_size=32,
-        callbacks=[early_stopping],
+        callbacks=callbacks,
         verbose=1
     )
 
     return best_model, best_hps, history
 
-def save_results(best_model, best_hps, project_dir, timestamp):
-    """Save the best model and hyperparameters"""
-    # Save model
-    model_path = os.path.join(project_dir, 'models', f'best_model_{timestamp}.keras')
-    best_model.save(model_path)
-    
-    # Save hyperparameters
-    hp_path = os.path.join(project_dir, 'models', f'best_hyperparameters_{timestamp}.txt')
-    with open(hp_path, 'w') as f:
-        f.write("Best Hyperparameters:\n")
-        for hp in best_hps.values:
-            f.write(f"{hp}: {best_hps.values[hp]}\n")
-
-def load_data(data_path):
-    """
-    Loads data from a .npy file
-
-    Parameters:
-    - data_path: str
-        Path to the .npy file containing the data.
-
-    Returns:
-    - numpy.ndarray
-         data.
-    """
-    # Load data
-    data = np.load(data_path)
-
-    return data
-
 def main():
-
-    data_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_6_train.npy'
-
-    data = load_data(data_path)
-
-    # First split: separate test set (e.g., 20% of total data)
-    x_train_val, x_test = train_test_split(data, test_size=0.2, random_state=42)
+    # Load and prepare data
+    data_path = r'/Users/home/Documents/github/convolutional_autoencoder/data/processed/npy/acc_vehicle_data_dof_5_baseline.npy'
+    data = np.load(data_path)
     
-    # Second split: separate validation set from remaining data
+    # Data splits with stratification if applicable
+    x_train_val, x_test = train_test_split(data, test_size=0.2, random_state=42)
     x_train, x_val = train_test_split(x_train_val, test_size=0.2, random_state=42)
     
     # Run optimization
     project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    best_model, best_hps, history = run_hyperparameter_optimization(x_train, x_val, project_dir)
+    best_model, best_hps, history = run_enhanced_hyperparameter_optimization(
+        x_train, x_val, project_dir
+    )
     
     # Save results
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
