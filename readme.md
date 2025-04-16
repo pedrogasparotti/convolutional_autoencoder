@@ -10,26 +10,6 @@ This project focuses on the reconstruction and classification of accelerometer s
 - **Outlier Detection**: Implement methods to detect anomalous signals within the dataset.
 - **Modeling**: Use convolutional autoencoders for signal reconstruction and anomaly detection.
 
-## Directory Structure
-
-├── data
-│   ├── processed
-│   │   └── npy
-│   │       ├── healthy_accel_matrices.npy
-│   │       └── ten_pc_damage_accel_matrices.npy
-│   └── vbi_2d_damage_10_pc
-│       └── [CSV files]             # .csv files are ignored by Git
-├── src
-│   ├── data
-│   │   └── make_dataset_pd.py      # Script for data preprocessing
-│   └── visualization
-│       ├── compare_healthy_damage_plots.py  # Script for plotting signals
-│       └── plot_training.py        # Script for visualizing training progress
-├── models                          # Model files (.png, .keras, .h5) are ignored by Git
-├── logs                            # Log files are ignored by Git
-├── .gitignore
-└── README.md
-
 ## Getting Started
 
 ### Prerequisites
